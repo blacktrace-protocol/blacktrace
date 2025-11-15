@@ -5,9 +5,10 @@
 //! BlackTrace enables institutions to execute large-volume ZEC trades without
 //! market impact, information leakage, or counterparty risk.
 
-// Public modules (will be implemented)
+// Public modules
 pub mod types;
 pub mod error;
+pub mod p2p;
 
 // Re-export common types
 pub use error::{BlackTraceError, Result};

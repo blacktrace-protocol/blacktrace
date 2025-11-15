@@ -26,7 +26,9 @@ sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
 
-# P2P Networking (will add libp2p next)
+# P2P Networking (minimal TCP implementation)
+tokio-util = { version = "0.7", features = ["codec"] }
+
 # Zcash integration (will add later)
 # CLI (will add clap later)
 
