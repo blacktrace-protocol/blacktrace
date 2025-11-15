@@ -9,6 +9,7 @@
 pub mod types;
 pub mod error;
 pub mod p2p;
+pub mod crypto;
 
 // Re-export common types
 pub use error::{BlackTraceError, Result};
