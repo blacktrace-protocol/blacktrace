@@ -24,12 +24,22 @@ BlackTrace solves the institutional trilemma by building a trustless coordinatio
 
 ## Architecture
 
-BlackTrace uses a 4-layer architecture:
+### Hybrid Rust-Go Stack
+
+BlackTrace uses a multi-language architecture, with each language optimized for its strengths:
+
+- **Go (`blacktrace-go/`)**: P2P networking with libp2p (encrypted connections, automatic peer discovery)
+- **Rust (`src/`)**: Cryptography (Blake2b, ZK proofs) and Zcash L1 integration
+- **Integration**: FFI/cgo for calling Rust crypto functions from Go application
+
+### 4-Layer System
 
 1. **Layer 1**: CLI (User Interface)
 2. **Layer 2**: Application Logic (P2P, ZK Proofs, Negotiation, Settlement)
 3. **Layer 3**: Ztarknet L2 Contracts (ZK-Attester, Order Registry)
 4. **Layer 4**: Zcash L1 (Orchard shielded pool + HTLCs)
+
+See `docs/ARCHITECTURE.md` for detailed design rationale.
 
 ## Status
 
@@ -38,11 +48,11 @@ BlackTrace uses a 4-layer architecture:
 ### Phase 1: Off-Chain Infrastructure (COMPLETE ✅)
 - ✅ Project structure and build system
 - ✅ Shared types and error handling (OrderID, PeerID, Hash, etc.)
-- ✅ P2P network manager (custom TCP implementation)
-- ✅ ZK commitment scheme (hash-based liquidity proofs)
-- ✅ Negotiation engine (multi-round price discovery)
-- ✅ CLI interface (node, order, negotiate, query commands)
-- ✅ 42 tests passing
+- ✅ P2P network manager (Go + libp2p with Noise encryption)
+- ✅ ZK commitment scheme (Rust - hash-based liquidity proofs)
+- ✅ Negotiation engine (Rust - multi-round price discovery)
+- ✅ Application layer (Go - channel-based architecture)
+- ✅ Demo: 6/6 scenarios passing with no deadlocks
 
 ### Phase 2: On-Chain Integration (PENDING ⏳)
 - ⏳ Zcash L1 RPC client + Orchard HTLC builder
@@ -57,15 +67,29 @@ See `docs/START_HERE.md` and `docs/IMPLEMENTATION_STATUS.md` for detailed status
 
 ## Build Instructions
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/blacktrace
-cd blacktrace
+### Go Application (Networking)
 
-# Build the project
+```bash
+# Navigate to Go implementation
+cd blacktrace-go
+
+# Install dependencies
+go mod tidy
+
+# Build
+go build -o blacktrace-demo
+
+# Run two-node demo
+./blacktrace-demo
+```
+
+### Rust Library (Cryptography)
+
+```bash
+# Build Rust crypto library
 cargo build --release
 
-# Run tests
+# Run Rust tests
 cargo test
 ```
 
@@ -82,11 +106,16 @@ cargo test --test integration
 
 ## Built With
 
-- **Rust** - Core implementation language
-- **Tokio** - Async runtime
-- **Custom TCP** - P2P networking (length-prefixed framing)
+### Go Stack (Networking)
+- **Go 1.21+** - Application runtime
+- **libp2p** - P2P networking framework (gossipsub + streams)
+- **Noise Protocol** - Transport encryption
+- **mDNS** - Automatic peer discovery
+
+### Rust Stack (Cryptography & Blockchain)
+- **Rust 1.91+** - Crypto implementation
 - **Blake2b** - Cryptographic hashing for commitments
-- **Clap** - CLI interface
+- **Tokio** - Async runtime for blockchain monitoring
 - **Zcash** - Settlement layer (Orchard shielded pool) - pending integration
 - **Ztarknet** - L2 privacy layer (Cairo HTLC contracts) - pending integration
 

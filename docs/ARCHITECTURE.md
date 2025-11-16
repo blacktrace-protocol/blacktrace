@@ -4,6 +4,46 @@
 
 BlackTrace is a zero-knowledge OTC coordination protocol for institutional Zcash trading. It enables institutions to execute large-volume ZEC trades without market impact, information leakage, or counterparty risk.
 
+## Language Stack: Hybrid Rust-Go Architecture
+
+**Architecture Decision: Multi-Language Approach**
+
+BlackTrace uses a hybrid architecture combining Rust and Go, with each language handling what it does best:
+
+### Go: Networking Layer (`blacktrace-go/`)
+- **Why Go**: Channel-based concurrency prevents mutex deadlocks
+- **libp2p**: Battle-tested P2P framework (used by IPFS, Filecoin, Ethereum 2.0)
+- **Security**: Noise protocol encryption, peer authentication
+- **Discovery**: Automatic mDNS peer discovery with bootstrap pattern
+- **Messaging**: Gossipsub for broadcasts, direct streams for P2P
+
+### Rust: Cryptography & Blockchain (`src/`)
+- **Why Rust**: Memory safety, zero-cost abstractions, mature crypto ecosystem
+- **Cryptography**: Blake2b commitments, nullifiers, ZK proofs
+- **Zcash L1**: Native integration with `zcash_primitives` and `orchard` crates
+- **Type Safety**: Strong compile-time guarantees for financial operations
+
+### Integration: FFI/cgo (Future Work)
+```
+┌─────────────────────────────────────────┐
+│ Go Application (main process)          │
+│ - libp2p networking                     │
+│ - Peer discovery & messaging            │
+│ - Application state management          │
+└─────────────────┬───────────────────────┘
+                  │ FFI/cgo calls
+                  ↓
+┌─────────────────────────────────────────┐
+│ Rust Library (.so/.dylib)              │
+│ - Blake2b commitments                   │
+│ - Nullifier generation                  │
+│ - Zcash Orchard HTLC creation          │
+│ - ZK proof verification                 │
+└─────────────────────────────────────────┘
+```
+
+**Rationale**: Initial Rust-only implementation encountered Arc<Mutex<>> deadlocks during concurrent message handling. Go's channel-based architecture solved this elegantly while maintaining production-grade P2P capabilities through libp2p.
+
 ## Four-Layer System Architecture
 
 ```
@@ -61,26 +101,64 @@ Comprehensive error system with 30+ variants:
 - Business logic errors (insufficient balance, order not found)
 - Blockchain errors (transaction, RPC, block parsing)
 
-### 3. P2P Network Manager (`src/p2p/`)
+### 3. P2P Network Manager (`blacktrace-go/network.go`)
 
-**Design Decision**: Minimal TCP implementation (not libp2p)
-- Avoided dependency hell and compatibility issues
-- ~350 lines of focused, maintainable code
-- Length-prefixed message framing (4-byte BE + payload)
+**Implementation**: Go with libp2p (production-grade P2P stack)
 
-**Features:**
-- Manual peer connection management
-- Broadcast messaging to all peers
-- Direct peer-to-peer messaging
-- Event-driven architecture (PeerConnected, PeerDisconnected, MessageReceived)
+**Key Features:**
+- **Transport Security**: Noise protocol (encrypted connections)
+- **Multiplexing**: yamux (multiple streams over single connection)
+- **Peer Discovery**: mDNS automatic local discovery with bootstrap pattern
+- **Messaging**:
+  - Gossipsub for broadcasts (order announcements, proposals)
+  - Direct streams for P2P (order details, private negotiations)
+- **Architecture**: Channel-based (no mutex deadlocks)
 
-**Protocol:**
+**Bootstrap Pattern:**
+```
+Node A (port 19000) = Bootstrap node (passive, only accepts)
+Node B (port 19001) = Regular node (active, discovers and dials)
+```
+This prevents bidirectional dial race conditions in mDNS discovery.
+
+**Message Flow:**
+```
+Broadcast (pubsub):          Direct Stream (P2P):
+┌─────────┐                 ┌─────────┐
+│ Node A  │──┐              │ Node A  │───────────┐
+└─────────┘  │              └─────────┘           │
+             ↓                                     ↓
+         ┌────────┐                           ┌─────────┐
+         │ Topic  │                           │ Node B  │
+         └────────┘                           └─────────┘
+             ↓
+┌─────────┐  │
+│ Node B  │←─┘
+└─────────┘
+
+Examples:                    Examples:
+- Order announcements        - Order detail requests
+- Price proposals            - Order detail responses
+```
+
+**Protocol (Stream Messages):**
 ```
 ┌──────────────┬────────────────────────┐
 │ Length (4B)  │ Payload (variable)     │
-│ Big Endian   │ Serialized message     │
+│ Big Endian   │ JSON serialized msg    │
 └──────────────┴────────────────────────┘
 ```
+
+**Channel Architecture (Key Innovation):**
+```go
+type NetworkManager struct {
+    eventCh   chan NetworkEvent   // Output: events TO app
+    commandCh chan NetworkCommand // Input: commands FROM app
+    // NO mutexes for messages - prevents deadlocks!
+}
+```
+
+**Rust Version (Reference)**: Initial custom TCP implementation in `src/p2p/` encountered Arc<Mutex<>> deadlocks during concurrent negotiation. Code preserved for cryptography integration but networking moved to Go.
 
 ### 4. Zero-Knowledge Commitments (`src/crypto/`)
 
