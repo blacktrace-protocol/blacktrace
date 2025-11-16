@@ -33,16 +33,27 @@ BlackTrace uses a 4-layer architecture:
 
 ## Status
 
-> 🚧 **Work in Progress** - Currently under active development
+> 🚧 **Off-Chain Workflow Complete** - On-chain integration in progress
 
-### Components Implemented:
-- 🔄 Project structure and build system
-- ⏳ Shared types and error handling
-- ⏳ P2P network manager
-- ⏳ ZK proof system
-- ⏳ Negotiation engine
-- ⏳ Settlement coordinator
-- ⏳ CLI interface
+### Phase 1: Off-Chain Infrastructure (COMPLETE ✅)
+- ✅ Project structure and build system
+- ✅ Shared types and error handling (OrderID, PeerID, Hash, etc.)
+- ✅ P2P network manager (custom TCP implementation)
+- ✅ ZK commitment scheme (hash-based liquidity proofs)
+- ✅ Negotiation engine (multi-round price discovery)
+- ✅ CLI interface (node, order, negotiate, query commands)
+- ✅ 42 tests passing
+
+### Phase 2: On-Chain Integration (PENDING ⏳)
+- ⏳ Zcash L1 RPC client + Orchard HTLC builder
+- ⏳ Ztarknet L2 client + Cairo HTLC interface
+- ⏳ Two-layer settlement coordinator
+- ⏳ Dual-layer blockchain monitor
+- ⏳ End-to-end atomic swap testing
+
+**Current Milestone**: 7/13 components complete (54%)
+
+See `docs/START_HERE.md` and `docs/IMPLEMENTATION_STATUS.md` for detailed status.
 
 ## Build Instructions
 
@@ -72,9 +83,12 @@ cargo test --test integration
 ## Built With
 
 - **Rust** - Core implementation language
-- **libp2p** - P2P networking
-- **Zcash** - Settlement layer (Orchard shielded pool)
-- **Cairo** - L2 smart contracts (optional)
+- **Tokio** - Async runtime
+- **Custom TCP** - P2P networking (length-prefixed framing)
+- **Blake2b** - Cryptographic hashing for commitments
+- **Clap** - CLI interface
+- **Zcash** - Settlement layer (Orchard shielded pool) - pending integration
+- **Ztarknet** - L2 privacy layer (Cairo HTLC contracts) - pending integration
 
 ## License
 
