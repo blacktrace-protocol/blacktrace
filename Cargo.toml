@@ -1,36 +1,26 @@
 [package]
-name = "blacktrace"
+name = "blacktrace-crypto"
 version = "0.1.0"
 edition = "2021"
+description = "Cryptographic primitives for BlackTrace protocol (Blake2b commitments, nullifiers)"
+
+[lib]
+name = "blacktrace_crypto"
+crate-type = ["cdylib", "rlib"]  # cdylib for FFI/cgo, rlib for Rust tests
 
 [dependencies]
-# Async runtime
-tokio = { version = "1.35", features = ["full"] }
-futures = "0.3"
-
-# Error handling
-anyhow = "1.0"
-thiserror = "1.0"
-
-# Logging
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-
-# Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
-# Cryptography
+# Cryptography only
 blake2 = "0.10"
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.8"
 
-# P2P Networking (minimal TCP implementation)
-tokio-util = { version = "0.7", features = ["codec"] }
+# Serialization (for types)
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
 
-# CLI
-clap = { version = "4.5", features = ["derive"] }
+# Error handling
+thiserror = "1.0"
 
 # Zcash integration (will add later)
 

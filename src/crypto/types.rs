@@ -1,32 +1,50 @@
 //! Cryptographic types for BlackTrace
 
-use crate::types::Hash;
 use serde::{Deserialize, Serialize};
 
+/// 32-byte hash value (Blake2b-256 output)
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Hash([u8; 32]);
+
+impl Hash {
+    /// Create hash from byte array
+    pub fn from_bytes(bytes: &[u8]) -> Self {
+        let mut hash = [0u8; 32];
+        let len = bytes.len().min(32);
+        hash[..len].copy_from_slice(&bytes[..len]);
+        Hash(hash)
+    }
+
+    /// Get hash as byte slice
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Convert to hex string
+    pub fn to_hex(&self) -> String {
+        hex::encode(self.0)
+    }
+}
+
+/// 32-byte random salt for commitments
+pub type Salt = [u8; 32];
+
+/// Viewing key for generating nullifiers
+pub type ViewingKey = Vec<u8>;
+
 /// Nullifier prevents reuse of the same liquidity proof
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Nullifier(pub [u8; 32]);
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Nullifier(pub Hash);
 
 impl Nullifier {
-    /// Create nullifier from bytes
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Nullifier(bytes)
+    /// Create nullifier from hash
+    pub fn new(hash: Hash) -> Self {
+        Nullifier(hash)
     }
 
     /// Get nullifier as hex string
     pub fn to_hex(&self) -> String {
-        hex::encode(self.0)
-    }
-
-    /// Create nullifier from hex string
-    pub fn from_hex(hex_str: &str) -> Result<Self, hex::FromHexError> {
-        let bytes = hex::decode(hex_str)?;
-        if bytes.len() != 32 {
-            return Err(hex::FromHexError::InvalidStringLength);
-        }
-        let mut nullifier = [0u8; 32];
-        nullifier.copy_from_slice(&bytes);
-        Ok(Nullifier(nullifier))
+        self.0.to_hex()
     }
 }
 
@@ -50,42 +68,4 @@ pub struct CommitmentOpening {
     pub amount: u64,
     /// Random salt used in commitment
     pub salt: [u8; 32],
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_nullifier_hex_conversion() {
-        let bytes = [42u8; 32];
-        let nullifier = Nullifier::from_bytes(bytes);
-
-        let hex = nullifier.to_hex();
-        let nullifier_from_hex = Nullifier::from_hex(&hex).unwrap();
-
-        assert_eq!(nullifier, nullifier_from_hex);
-    }
-
-    #[test]
-    fn test_nullifier_serialization() {
-        let nullifier = Nullifier([123u8; 32]);
-        let serialized = serde_json::to_string(&nullifier).unwrap();
-        let deserialized: Nullifier = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(nullifier, deserialized);
-    }
-
-    #[test]
-    fn test_commitment_serialization() {
-        let commitment = LiquidityCommitment {
-            commitment_hash: Hash::from_bytes(b"test"),
-            nullifier: Nullifier([1u8; 32]),
-            min_amount: 10000,
-            timestamp: 1234567890,
-        };
-
-        let serialized = serde_json::to_string(&commitment).unwrap();
-        let deserialized: LiquidityCommitment = serde_json::from_str(&serialized).unwrap();
-        assert_eq!(commitment.min_amount, deserialized.min_amount);
-    }
 }
