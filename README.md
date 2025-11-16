@@ -67,7 +67,7 @@ See `docs/START_HERE.md` and `docs/IMPLEMENTATION_STATUS.md` for detailed status
 
 ## Build Instructions
 
-### Go Application (Networking)
+### Go Application (CLI + Networking)
 
 ```bash
 # Navigate to Go implementation
@@ -76,11 +76,11 @@ cd blacktrace-go
 # Install dependencies
 go mod tidy
 
-# Build
-go build -o blacktrace-demo
+# Build the CLI
+go build -o blacktrace
 
-# Run two-node demo
-./blacktrace-demo
+# View available commands
+./blacktrace --help
 ```
 
 ### Rust Library (Cryptography)
@@ -93,16 +93,78 @@ cargo build --release
 cargo test
 ```
 
-## Testing
+## Usage
+
+### Start a Node
 
 ```bash
-# Run all tests
+# Start first node (Maker)
+./blacktrace node --port 9000
+
+# Start second node (Taker) and connect to first
+./blacktrace node --port 9001 --connect /ip4/127.0.0.1/tcp/9000/p2p/<peer-id>
+```
+
+### Create and Manage Orders
+
+```bash
+# Create a sell order for 10,000 ZEC
+./blacktrace order create \
+  --amount 10000 \
+  --stablecoin USDC \
+  --min-price 450 \
+  --max-price 470
+
+# List all discovered orders
+./blacktrace order list
+```
+
+### Negotiate Prices
+
+```bash
+# Request details for an order
+./blacktrace negotiate request <order-id>
+
+# Propose a price
+./blacktrace negotiate propose <order-id> \
+  --price 460 \
+  --amount 10000
+```
+
+### Query Network
+
+```bash
+# List connected peers
+./blacktrace query peers
+
+# Show node status
+./blacktrace query status
+```
+
+### Run Demo
+
+```bash
+# Run the automated two-node demo
+cd blacktrace-go
+go run examples/demo.go
+```
+
+## Testing
+
+### Rust Crypto Tests
+
+```bash
+# Run all Rust tests
 cargo test
 
 # Run specific test suite
 cargo test --test unit
 cargo test --test integration
 ```
+
+### Manual CLI Testing
+
+See `docs/MANUAL_TESTING.md` for detailed testing scenarios.
 
 ## Built With
 
