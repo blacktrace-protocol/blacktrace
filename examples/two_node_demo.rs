@@ -32,12 +32,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let node_a = BlackTraceApp::new(9000).await?;
     println!("   ✅ Node A online\n");
 
+    // Start Node A's event loop in background
+    let node_a_clone = node_a.clone();
+    tokio::spawn(async move {
+        node_a_clone.run_event_loop().await;
+    });
+
     sleep(Duration::from_millis(300)).await;
 
     // Start Node B (Taker)
     println!("📡 Starting Node B (Taker) on port 9001...");
     let node_b = BlackTraceApp::new(9001).await?;
     println!("   ✅ Node B online\n");
+
+    // Start Node B's event loop in background
+    let node_b_clone = node_b.clone();
+    tokio::spawn(async move {
+        node_b_clone.run_event_loop().await;
+    });
 
     sleep(Duration::from_millis(300)).await;
 
@@ -69,7 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✅ Order created: {}", order_id);
     println!("   📤 Broadcasting to network...\n");
 
-    sleep(Duration::from_millis(500)).await;
+    // Give event loop time to process the broadcast
+    sleep(Duration::from_millis(1000)).await;
 
     // =========================================================================
     // Scenario 2: Order Discovery

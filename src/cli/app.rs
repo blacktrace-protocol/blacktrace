@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 /// Main BlackTrace application
+#[derive(Clone)]
 pub struct BlackTraceApp {
     network: Arc<Mutex<NetworkManager>>,
     negotiation: Arc<Mutex<NegotiationEngine>>,
