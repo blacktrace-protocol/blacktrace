@@ -148,8 +148,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Amount: 10,000 ZEC");
     println!("   Total: $4,650,000 USDC");
 
-    node_a.propose_price(&order_id, 465, 10000).await?;
-    println!("   ✅ Counter-proposal sent to Taker\n");
+    match node_a.propose_price(&order_id, 465, 10000).await {
+        Ok(_) => println!("   ✅ Counter-proposal sent to Taker\n"),
+        Err(e) => {
+            println!("   ❌ Error: {}\n", e);
+            println!("Debug: Node A may not have a negotiation session.");
+            println!("This usually means Node A didn't process the request properly.");
+            return Ok(());
+        }
+    }
 
     sleep(Duration::from_millis(500)).await;
 

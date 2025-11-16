@@ -284,6 +284,8 @@ impl BlackTraceApp {
                     // Get order from local storage
                     let orders = self.orders.lock().await;
                     if let Some(order) = orders.get(&order_id) {
+                        tracing::debug!("Found order, preparing details...");
+
                         // Reveal order details
                         let details = OrderDetails {
                             order_id: order_id.clone(),
@@ -296,13 +298,18 @@ impl BlackTraceApp {
 
                         drop(orders); // Release lock before calling negotiation engine
 
+                        tracing::debug!("Creating negotiation session...");
                         let response = self.negotiation
                             .lock()
                             .await
                             .reveal_order_details(&order_id, details, from.clone())?;
 
+                        tracing::debug!("Sending order details response...");
                         // Send response back to requester
                         self.network.lock().await.send_to_peer(&from, response).await?;
+                        tracing::info!("Sent order details to {}", from);
+                    } else {
+                        tracing::warn!("Order {} not found in local storage", order_id);
                     }
                     return Ok(());
                 }
