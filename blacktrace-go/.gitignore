@@ -1,0 +1,16 @@
+# Binaries
+blacktrace-demo
+blacktrace-node
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Go coverage
+*.out
