@@ -27,9 +27,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("║   Testing Off-Chain Workflow                ║");
     println!("╚══════════════════════════════════════════════╝\n");
 
+    // Use random available ports to avoid conflicts
+    use std::net::TcpListener;
+    let port_a = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+    let port_b = TcpListener::bind("127.0.0.1:0")?.local_addr()?.port();
+
     // Start Node A (Maker)
-    println!("📡 Starting Node A (Maker) on port 9000...");
-    let node_a = BlackTraceApp::new(9000).await?;
+    println!("📡 Starting Node A (Maker) on port {}...", port_a);
+    let node_a = BlackTraceApp::new(port_a).await?;
     println!("   ✅ Node A online\n");
 
     // Start Node A's event loop in background
@@ -41,8 +46,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sleep(Duration::from_millis(300)).await;
 
     // Start Node B (Taker)
-    println!("📡 Starting Node B (Taker) on port 9001...");
-    let node_b = BlackTraceApp::new(9001).await?;
+    println!("📡 Starting Node B (Taker) on port {}...", port_b);
+    let node_b = BlackTraceApp::new(port_b).await?;
     println!("   ✅ Node B online\n");
 
     // Start Node B's event loop in background
@@ -55,7 +60,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Connect Node B to Node A
     println!("🔗 Connecting Node B → Node A...");
-    node_b.connect_to_peer("127.0.0.1:9000").await?;
+    let addr_a = format!("127.0.0.1:{}", port_a);
+    node_b.connect_to_peer(&addr_a).await?;
     println!("   ✅ Peers connected\n");
 
     sleep(Duration::from_millis(500)).await;
@@ -119,7 +125,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   ✅ Details requested from Maker");
     println!("   📨 Waiting for Maker to reveal...\n");
 
-    sleep(Duration::from_millis(500)).await;
+    // Give more time for event loop to process
+    sleep(Duration::from_millis(1500)).await;
 
     // =========================================================================
     // Scenario 4: Price Proposal (Round 1)
@@ -135,7 +142,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     node_b.propose_price(&order_id, 450, 10000).await?;
     println!("   ✅ Proposal sent to Maker\n");
 
-    sleep(Duration::from_millis(500)).await;
+    // Give event loop time to process the proposal
+    sleep(Duration::from_millis(1500)).await;
 
     // =========================================================================
     // Scenario 5: Counter-Proposal (Round 2)
@@ -148,12 +156,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Amount: 10,000 ZEC");
     println!("   Total: $4,650,000 USDC");
 
-    match node_a.propose_price(&order_id, 465, 10000).await {
-        Ok(_) => println!("   ✅ Counter-proposal sent to Taker\n"),
-        Err(e) => {
+    // Use tokio::time::timeout to avoid hanging forever
+    match tokio::time::timeout(
+        Duration::from_secs(5),
+        node_a.propose_price(&order_id, 465, 10000)
+    ).await {
+        Ok(Ok(_)) => println!("   ✅ Counter-proposal sent to Taker\n"),
+        Ok(Err(e)) => {
             println!("   ❌ Error: {}\n", e);
             println!("Debug: Node A may not have a negotiation session.");
             println!("This usually means Node A didn't process the request properly.");
+            return Ok(());
+        }
+        Err(_) => {
+            println!("   ❌ Timeout: propose_price hung for 5 seconds\n");
+            println!("Debug: Likely a deadlock or network issue.");
+            println!("Check if event loop is processing messages.");
             return Ok(());
         }
     }

@@ -334,7 +334,13 @@ impl BlackTraceApp {
                 }
 
                 // Unknown message type
-                tracing::debug!("Received {} bytes from {}", data.len(), from);
+                tracing::warn!(
+                    "Unknown message type: {} bytes from {}. First 50 bytes: {:?}",
+                    data.len(),
+                    from,
+                    &data[..data.len().min(50)]
+                );
+                tracing::warn!("Message as string: {}", String::from_utf8_lossy(&data));
             }
         }
 
