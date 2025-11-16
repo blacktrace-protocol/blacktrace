@@ -277,6 +277,36 @@ impl BlackTraceApp {
                     return Ok(());
                 }
 
+                // Try to deserialize as order details request (just an OrderID)
+                if let Ok(order_id) = serde_json::from_slice::<OrderID>(&data) {
+                    tracing::info!("Received order details request: {}", order_id);
+
+                    // Get order from local storage
+                    let orders = self.orders.lock().await;
+                    if let Some(order) = orders.get(&order_id) {
+                        // Reveal order details
+                        let details = OrderDetails {
+                            order_id: order_id.clone(),
+                            order_type: order.order_type.clone(),
+                            amount: 10000, // Simplified - should decrypt from order
+                            min_price: 450, // Simplified
+                            max_price: 470, // Simplified
+                            stablecoin: order.stablecoin.clone(),
+                        };
+
+                        drop(orders); // Release lock before calling negotiation engine
+
+                        let response = self.negotiation
+                            .lock()
+                            .await
+                            .reveal_order_details(&order_id, details, from.clone())?;
+
+                        // Send response back to requester
+                        self.network.lock().await.send_to_peer(&from, response).await?;
+                    }
+                    return Ok(());
+                }
+
                 // Try to deserialize as order details
                 if let Ok(details) = serde_json::from_slice::<OrderDetails>(&data) {
                     tracing::info!("Received order details: {}", details.order_id);
@@ -287,8 +317,16 @@ impl BlackTraceApp {
                     return Ok(());
                 }
 
-                // Try to handle as negotiation message
-                // For now, just log
+                // Try to deserialize as proposal
+                use crate::negotiation::Proposal;
+                if let Ok(proposal) = serde_json::from_slice::<Proposal>(&data) {
+                    tracing::info!("Received proposal: {} per unit", proposal.price);
+                    // Proposals don't have order_id embedded, need to track separately
+                    // For now, just log
+                    return Ok(());
+                }
+
+                // Unknown message type
                 tracing::debug!("Received {} bytes from {}", data.len(), from);
             }
         }
