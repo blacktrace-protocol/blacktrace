@@ -11,6 +11,7 @@ pub mod error;
 pub mod p2p;
 pub mod crypto;
 pub mod negotiation;
+pub mod cli;
 
 // Re-export common types
 pub use error::{BlackTraceError, Result};

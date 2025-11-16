@@ -29,8 +29,10 @@ rand = "0.8"
 # P2P Networking (minimal TCP implementation)
 tokio-util = { version = "0.7", features = ["codec"] }
 
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
 # Zcash integration (will add later)
-# CLI (will add clap later)
 
 [dev-dependencies]
 tokio-test = "0.4"
