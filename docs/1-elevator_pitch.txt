@@ -1,6 +1,6 @@
 1. The Hook: What is BlackTrace? (The Missing Layer)
 
-BlackTrace is the decentralized, zero-knowledge OTC coordination protocol built on Zcash. We enable institutions to execute massive, large-volume ZEC trades—worth millions—without market impact, information leakage, or counterparty risk.
+BlackTrace is the decentralized, zero-knowledge OTC coordination protocol built on Zcash. We enable institutions to execute massive, large-volume ZEC trades-worth millions-without market impact, information leakage, or counterparty risk.
 Simply put: We are the missing application layer that transforms Zcash from a private asset into an institutional trading instrument.
 
 2. The Pain: The Impossible Trilemma
@@ -22,7 +22,7 @@ BlackTrace solves the institutional trilemma by building a trustless coordinatio
 
 Zero Risk, 96x Faster: We eliminate billions in counterparty exposure and reduce settlement time from 48 hours to 30 minutes.
 First & Only ZK-Attested Protocol: No other system combines zero-knowledge discovery with atomic settlement on a privacy L1. This can't be replicated on Ethereum or Bitcoin without massive trade-offs.
-Native L1 Privacy: Settlement occurs directly in Zcash’s Orchard shielded pool. No bridges, no L2 operators, no intermediary risk—only trust in math.
+Native L1 Privacy: Settlement occurs directly in Zcash's Orchard shielded pool. No bridges, no L2 operators, no intermediary risk-only trust in math.
 We are transforming the risky, expensive, 48-hour OTC negotiation into a trustless, 30-minute cryptographic exchange.
 
 BlackTrace is the First & Only ZK-Attested OTC Coordination Protocol on a privacy-preserving L1

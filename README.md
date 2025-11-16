@@ -2,7 +2,7 @@
 
 **Zero-Knowledge OTC Settlement for Institutional Zcash Trading**
 
-BlackTrace is the decentralized, zero-knowledge OTC coordination protocol built on Zcash. We enable institutions to execute massive, large-volume ZEC trades—worth millions—without market impact, information leakage, or counterparty risk.
+BlackTrace is the decentralized, zero-knowledge OTC coordination protocol built on Zcash. We enable institutions to execute massive, large-volume ZEC trades-worth millions-without market impact, information leakage, or counterparty risk.
 
 ## The Problem
 
