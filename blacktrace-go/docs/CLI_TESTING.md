@@ -14,6 +14,69 @@ go build -o blacktrace
 
 ---
 
+## Node Management Commands
+
+Before running tests, familiarize yourself with these node management commands:
+
+### List Running Nodes
+
+Check all running BlackTrace node processes:
+
+```bash
+./blacktrace node list
+```
+
+**Example Output:**
+```
+📋 Running BlackTrace Nodes:
+
+  PID: 30728 | Started: 4:01PM | P2P Port: 9001 | API Port: 8081
+  PID: 30727 | Started: 4:01PM | P2P Port: 9000 | API Port: 8080
+
+Total: 2 nodes
+```
+
+### Kill All Running Nodes
+
+Clean up all running node processes (useful for preventing zombie processes and mDNS pollution):
+
+```bash
+./blacktrace node kill-all
+```
+
+**Example Output:**
+```
+⚠️  Killing all BlackTrace node processes...
+✅ All BlackTrace nodes killed
+💡 Tip: Wait 5 seconds for mDNS cache to expire before starting new nodes
+```
+
+### Get Individual Node Details
+
+Query a specific node's status (including peer ID):
+
+```bash
+# Default (port 8080)
+./blacktrace query status
+
+# Specific node
+./blacktrace --api-url http://localhost:8081 query status
+```
+
+**Example Output:**
+```
+📊 Node Status:
+
+Peer ID: 12D3KooWMzrycDnHzjP7PT2BEVHUKvkJoUh2UkayDXkDCLGuN5Yv
+Listening: /ip4/127.0.0.1/tcp/9001
+Peers: 1
+Orders: 0
+```
+
+**Best Practice:** Always use `./blacktrace node kill-all` before starting new tests to avoid zombie processes that cause mDNS peer ID confusion.
+
+---
+
 ## Single Node Testing
 
 ### 1. Start a Node
@@ -457,6 +520,35 @@ tail -f /tmp/bt-node.log
 # Ensure firewall allows connections
 # Try explicit connection with --connect flag
 ```
+
+### Issue: Stale peer IDs / "noise: message is too short" errors
+
+**Cause:** Zombie node processes broadcasting via mDNS
+
+**Symptoms:**
+- Logs show "noise: message is too short" errors
+- Nodes report wrong peer IDs
+- `query status` shows different peer ID than node log
+- Multiple failed connection attempts during startup
+
+**Solution:**
+```bash
+# List all running nodes
+./blacktrace node list
+
+# Kill all zombie processes
+./blacktrace node kill-all
+
+# Wait for mDNS cache to expire
+sleep 5
+
+# Start fresh nodes
+./blacktrace node --port 9000 --api-port 8080
+```
+
+**Prevention:** Always use `./blacktrace node kill-all` before starting new test runs.
+
+---
 
 ### Issue: Orders not appearing on second node
 
