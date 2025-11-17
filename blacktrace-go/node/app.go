@@ -11,6 +11,7 @@ import (
 // BlackTraceApp is the main application
 type BlackTraceApp struct {
 	network *NetworkManager
+	authMgr *AuthManager
 	orders  map[OrderID]*OrderAnnouncement
 	ordersMux sync.RWMutex
 
@@ -48,8 +49,12 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 		return nil, err
 	}
 
+	// Create auth manager with 24-hour session expiration
+	authMgr := NewAuthManager(24 * time.Hour)
+
 	app := &BlackTraceApp{
 		network:      nm,
+		authMgr:      authMgr,
 		orders:       make(map[OrderID]*OrderAnnouncement),
 		proposals:    make(map[ProposalID]*Proposal),
 		appCommandCh: make(chan AppCommand, 100),
@@ -410,4 +415,9 @@ func (app *BlackTraceApp) Shutdown() {
 	app.network.CommandChan() <- NetworkCommand{
 		Type: "shutdown",
 	}
+}
+
+// GetAuthManager returns the authentication manager
+func (app *BlackTraceApp) GetAuthManager() *AuthManager {
+	return app.authMgr
 }

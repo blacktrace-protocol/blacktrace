@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // APIServer provides HTTP API for CLI communication
@@ -29,12 +30,21 @@ func (api *APIServer) Start() error {
 	mux := http.NewServeMux()
 
 	// Register endpoints
+	// Authentication endpoints
+	mux.HandleFunc("/auth/register", api.handleAuthRegister)
+	mux.HandleFunc("/auth/login", api.handleAuthLogin)
+	mux.HandleFunc("/auth/logout", api.handleAuthLogout)
+	mux.HandleFunc("/auth/whoami", api.handleAuthWhoami)
+
+	// Order and negotiation endpoints
 	mux.HandleFunc("/orders", api.handleOrders)
 	mux.HandleFunc("/orders/create", api.handleCreateOrder)
 	mux.HandleFunc("/negotiate/request", api.handleNegotiateRequest)
 	mux.HandleFunc("/negotiate/propose", api.handleNegotiatePropose)
 	mux.HandleFunc("/negotiate/proposals", api.handleListProposals)
 	mux.HandleFunc("/negotiate/accept", api.handleAcceptProposal)
+
+	// Network endpoints
 	mux.HandleFunc("/peers", api.handlePeers)
 	mux.HandleFunc("/status", api.handleStatus)
 	mux.HandleFunc("/health", api.handleHealth)
@@ -127,11 +137,186 @@ type ErrorResponse struct {
 	Error string `json:"error"`
 }
 
+// Authentication request/response types
+
+type AuthRegisterRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type AuthRegisterResponse struct {
+	Username string `json:"username"`
+	Status   string `json:"status"`
+}
+
+type AuthLoginRequest struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type AuthLoginResponse struct {
+	SessionID string `json:"session_id"`
+	Username  string `json:"username"`
+	ExpiresAt string `json:"expires_at"`
+}
+
+type AuthLogoutRequest struct {
+	SessionID string `json:"session_id"`
+}
+
+type AuthLogoutResponse struct {
+	Status string `json:"status"`
+}
+
+type AuthWhoamiRequest struct {
+	SessionID string `json:"session_id"`
+}
+
+type AuthWhoamiResponse struct {
+	Username   string `json:"username"`
+	SessionID  string `json:"session_id"`
+	LoggedInAt string `json:"logged_in_at"`
+	ExpiresAt  string `json:"expires_at"`
+}
+
 // Handlers
 
 func (api *APIServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("OK"))
+}
+
+// Authentication handlers
+
+func (api *APIServer) handleAuthRegister(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AuthRegisterRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Username == "" {
+		api.sendError(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+	if req.Password == "" {
+		api.sendError(w, "Password is required", http.StatusBadRequest)
+		return
+	}
+
+	// Register user
+	authMgr := api.app.GetAuthManager()
+	if err := authMgr.Register(req.Username, req.Password); err != nil {
+		api.sendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	api.sendJSON(w, AuthRegisterResponse{
+		Username: req.Username,
+		Status:   "registered",
+	})
+}
+
+func (api *APIServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AuthLoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Validate request
+	if req.Username == "" {
+		api.sendError(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+	if req.Password == "" {
+		api.sendError(w, "Password is required", http.StatusBadRequest)
+		return
+	}
+
+	// Login user
+	authMgr := api.app.GetAuthManager()
+	sessionID, err := authMgr.Login(req.Username, req.Password)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	// Get session details
+	session, err := authMgr.GetSession(sessionID)
+	if err != nil {
+		api.sendError(w, "Failed to get session details", http.StatusInternalServerError)
+		return
+	}
+
+	api.sendJSON(w, AuthLoginResponse{
+		SessionID: sessionID,
+		Username:  req.Username,
+		ExpiresAt: session.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
+func (api *APIServer) handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AuthLogoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Logout user
+	authMgr := api.app.GetAuthManager()
+	if err := authMgr.Logout(req.SessionID); err != nil {
+		api.sendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	api.sendJSON(w, AuthLogoutResponse{
+		Status: "logged out",
+	})
+}
+
+func (api *APIServer) handleAuthWhoami(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AuthWhoamiRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get session
+	authMgr := api.app.GetAuthManager()
+	session, err := authMgr.GetSession(req.SessionID)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	api.sendJSON(w, AuthWhoamiResponse{
+		Username:   session.Username,
+		SessionID:  session.SessionID,
+		LoggedInAt: session.LoggedInAt.Format(time.RFC3339),
+		ExpiresAt:  session.ExpiresAt.Format(time.RFC3339),
+	})
 }
 
 func (api *APIServer) handleCreateOrder(w http.ResponseWriter, r *http.Request) {

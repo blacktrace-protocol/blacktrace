@@ -14,6 +14,107 @@ go build -o blacktrace
 
 ---
 
+## Authentication Commands
+
+BlackTrace now includes user authentication with encrypted identity management. Users must register and login before performing trading operations.
+
+### Register a New User
+
+Create a new user identity with an encrypted ECDSA keypair:
+
+```bash
+./blacktrace auth register
+```
+
+**Interactive Prompts:**
+```
+Register New User Identity
+==========================
+
+Username: alice
+Password: ********
+Confirm Password: ********
+
+User 'alice' registered successfully!
+You can now login with: ./blacktrace auth login
+```
+
+**What Happens:**
+- Generates ECDSA P-256 keypair
+- Encrypts private key with password (AES-256-GCM + PBKDF2)
+- Stores identity in `~/.blacktrace/identities/alice.json`
+
+### Login to a Node
+
+Authenticate and create a session:
+
+```bash
+./blacktrace auth login
+```
+
+**Interactive Prompts:**
+```
+Login to Node
+=============
+
+Username: alice
+Password: ********
+
+Login successful!
+Logged in as: alice
+Session expires: 2025-11-18T22:07:16+05:30
+
+You can now use order and negotiate commands
+```
+
+**What Happens:**
+- Authenticates user with password
+- Decrypts private key
+- Creates session with 24-hour expiration
+- Saves session token to `~/.blacktrace/session.json`
+
+### Check Current Session
+
+Display information about the currently logged-in user:
+
+```bash
+./blacktrace auth whoami
+```
+
+**Example Output:**
+```
+Current Session
+===============
+Username: alice
+Session ID: 703dceff431e156d8e8a0b1bb309f5a2ae0887822f2b1fa9e8983fbbd223b157
+API URL: http://localhost:8080
+Logged in at: 2025-11-17T22:07:16+05:30
+Expires at: 2025-11-18T22:07:16+05:30
+```
+
+### Logout
+
+Terminate the current session:
+
+```bash
+./blacktrace auth logout
+```
+
+**Example Output:**
+```
+Logged out successfully
+```
+
+**Security Features:**
+- ECDSA keypairs (P-256 elliptic curve)
+- AES-256-GCM encryption for private keys
+- PBKDF2 key derivation (100,000 iterations)
+- Random salts per identity
+- 24-hour session expiration
+- Session tokens stored locally
+
+---
+
 ## Node Management Commands
 
 Before running tests, familiarize yourself with these node management commands:
