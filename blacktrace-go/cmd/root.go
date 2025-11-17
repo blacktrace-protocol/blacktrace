@@ -7,8 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Default API URL for connecting to running node
-const apiURL = "http://localhost:8080"
+// API URL for connecting to running node (configurable via --api-url flag)
+var apiURL string
 
 var rootCmd = &cobra.Command{
 	Use:   "blacktrace",
@@ -31,5 +31,6 @@ func Execute() {
 }
 
 func init() {
-	// Global flags can be added here
+	// Global flag for API URL
+	rootCmd.PersistentFlags().StringVar(&apiURL, "api-url", "http://localhost:8080", "API URL of the node to connect to")
 }

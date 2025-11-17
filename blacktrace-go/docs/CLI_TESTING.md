@@ -510,5 +510,12 @@ After CLI testing is complete:
 
 ---
 
+## See Also
+
+- **[TWO_NODE_DEMO.md](TWO_NODE_DEMO.md)** - Complete two-node maker/taker demonstration with real P2P message exchange
+
+---
+
 **Last Updated:** 2025-11-17
 **Status:** ✅ All CLI commands tested and working
+**Two-Node Demo:** ✅ P2P maker/taker workflow verified
