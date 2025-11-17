@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/libp2p/go-libp2p"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -73,13 +74,29 @@ func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
 		return
 	}
 
-	// Regular nodes connect to discovered peers
-	log.Printf("Connecting to discovered peer: %s", pi.ID)
-	if err := n.nm.host.Connect(n.nm.ctx, pi); err != nil {
-		log.Printf("Failed to connect to discovered peer: %v", err)
-	} else {
-		log.Printf("Successfully connected to peer: %s", pi.ID)
+	// Connect in background with retry logic
+	go n.connectWithRetry(pi)
+}
+
+func (n *discoveryNotifee) connectWithRetry(pi peer.AddrInfo) {
+	// Wait a bit to let the peer fully initialize
+	time.Sleep(500 * time.Millisecond)
+
+	maxRetries := 3
+	for i := 0; i < maxRetries; i++ {
+		log.Printf("Connecting to discovered peer: %s (attempt %d/%d)", pi.ID, i+1, maxRetries)
+
+		if err := n.nm.host.Connect(n.nm.ctx, pi); err != nil {
+			log.Printf("Failed to connect to discovered peer (attempt %d/%d): %v", i+1, maxRetries, err)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1)) // Exponential backoff
+			}
+		} else {
+			log.Printf("Successfully connected to peer: %s", pi.ID)
+			return
+		}
 	}
+	log.Printf("Gave up connecting to peer %s after %d attempts", pi.ID, maxRetries)
 }
 
 // NewNetworkManager creates a new libp2p-based network manager
@@ -315,7 +332,7 @@ func (nm *NetworkManager) handleCommand(cmd NetworkCommand) {
 	}
 }
 
-// connectToPeer connects to a remote peer by multiaddr
+// connectToPeer connects to a remote peer by multiaddr with retry logic
 func (nm *NetworkManager) connectToPeer(addr string) {
 	maddr, err := multiaddr.NewMultiaddr(addr)
 	if err != nil {
@@ -329,12 +346,25 @@ func (nm *NetworkManager) connectToPeer(addr string) {
 		return
 	}
 
-	if err := nm.host.Connect(nm.ctx, *addrInfo); err != nil {
-		log.Printf("Failed to connect to %s: %v", addr, err)
-		return
-	}
+	// Wait a bit to let the target peer fully initialize
+	time.Sleep(500 * time.Millisecond)
 
-	log.Printf("Connected to peer: %s", addrInfo.ID)
+	// Retry logic
+	maxRetries := 5
+	for i := 0; i < maxRetries; i++ {
+		log.Printf("Connecting to %s (attempt %d/%d)", addrInfo.ID, i+1, maxRetries)
+
+		if err := nm.host.Connect(nm.ctx, *addrInfo); err != nil {
+			log.Printf("Failed to connect to %s (attempt %d/%d): %v", addr, i+1, maxRetries, err)
+			if i < maxRetries-1 {
+				time.Sleep(time.Second * time.Duration(i+1)) // Exponential backoff
+			}
+		} else {
+			log.Printf("Successfully connected to peer: %s", addrInfo.ID)
+			return
+		}
+	}
+	log.Printf("Gave up connecting to %s after %d attempts", addr, maxRetries)
 }
 
 // sendToPeer sends a message to a specific peer via stream
