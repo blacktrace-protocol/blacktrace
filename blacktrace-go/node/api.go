@@ -33,6 +33,8 @@ func (api *APIServer) Start() error {
 	mux.HandleFunc("/orders/create", api.handleCreateOrder)
 	mux.HandleFunc("/negotiate/request", api.handleNegotiateRequest)
 	mux.HandleFunc("/negotiate/propose", api.handleNegotiatePropose)
+	mux.HandleFunc("/negotiate/proposals", api.handleListProposals)
+	mux.HandleFunc("/negotiate/accept", api.handleAcceptProposal)
 	mux.HandleFunc("/peers", api.handlePeers)
 	mux.HandleFunc("/status", api.handleStatus)
 	mux.HandleFunc("/health", api.handleHealth)
@@ -87,6 +89,22 @@ type NegotiateProposeRequest struct {
 	OrderID OrderID `json:"order_id"`
 	Price   uint64  `json:"price"`
 	Amount  uint64  `json:"amount"`
+}
+
+type ListProposalsRequest struct {
+	OrderID OrderID `json:"order_id"`
+}
+
+type ListProposalsResponse struct {
+	Proposals []*Proposal `json:"proposals"`
+}
+
+type AcceptProposalRequest struct {
+	ProposalID ProposalID `json:"proposal_id"`
+}
+
+type AcceptProposalResponse struct {
+	Status string `json:"status"`
 }
 
 type PeersResponse struct {
@@ -200,6 +218,45 @@ func (api *APIServer) handleNegotiatePropose(w http.ResponseWriter, r *http.Requ
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"proposal sent"}`))
+}
+
+func (api *APIServer) handleListProposals(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ListProposalsRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Get proposals for the order
+	proposals := api.app.ListProposals(req.OrderID)
+
+	api.sendJSON(w, ListProposalsResponse{Proposals: proposals})
+}
+
+func (api *APIServer) handleAcceptProposal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req AcceptProposalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Accept the proposal
+	if err := api.app.AcceptProposal(req.ProposalID); err != nil {
+		api.sendError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	api.sendJSON(w, AcceptProposalResponse{Status: "accepted"})
 }
 
 func (api *APIServer) handlePeers(w http.ResponseWriter, r *http.Request) {

@@ -2,6 +2,7 @@ package node
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -12,6 +13,10 @@ type BlackTraceApp struct {
 	network *NetworkManager
 	orders  map[OrderID]*OrderAnnouncement
 	ordersMux sync.RWMutex
+
+	// Proposal tracking - maps ProposalID to Proposal
+	proposals    map[ProposalID]*Proposal
+	proposalsMux sync.RWMutex
 
 	// Channels for inter-component communication
 	appCommandCh chan AppCommand
@@ -46,6 +51,7 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 	app := &BlackTraceApp{
 		network:      nm,
 		orders:       make(map[OrderID]*OrderAnnouncement),
+		proposals:    make(map[ProposalID]*Proposal),
 		appCommandCh: make(chan AppCommand, 100),
 		shutdownCh:   make(chan struct{}),
 	}
@@ -154,7 +160,12 @@ func (app *BlackTraceApp) handleMessage(from PeerID, data []byte) {
 			return
 		}
 
-		log.Printf("App: Received proposal for %s: $%d", proposal.OrderID, proposal.Price)
+		log.Printf("App: Received proposal %s for %s: $%d from %s", proposal.ProposalID, proposal.OrderID, proposal.Price, proposal.ProposerID)
+
+		// Store the proposal
+		app.proposalsMux.Lock()
+		app.proposals[proposal.ProposalID] = &proposal
+		app.proposalsMux.Unlock()
 	}
 }
 
@@ -262,21 +273,31 @@ func (app *BlackTraceApp) sendOrderDetails(to PeerID, orderID OrderID) {
 
 // proposePrice proposes a price for an order
 func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
+	proposalID := NewProposalID(orderID)
+
 	proposal := Proposal{
-		OrderID:   orderID,
-		Price:     price,
-		Amount:    amount,
-		Proposer:  "Taker",
-		Timestamp: time.Now(),
+		ProposalID: proposalID,
+		OrderID:    orderID,
+		Price:      price,
+		Amount:     amount,
+		ProposerID: app.GetPeerID(),
+		Status:     ProposalStatusPending,
+		Timestamp:  time.Now(),
 	}
 
+	// Store the proposal locally
+	app.proposalsMux.Lock()
+	app.proposals[proposalID] = &proposal
+	app.proposalsMux.Unlock()
+
+	// Broadcast to network
 	data, _ := MarshalMessage("proposal", proposal)
 	app.network.CommandChan() <- NetworkCommand{
 		Type: "broadcast",
 		Data: data,
 	}
 
-	log.Printf("App: Proposed price $%d for order %s", price, orderID)
+	log.Printf("App: Proposed price $%d for order %s (Proposal ID: %s)", price, orderID, proposalID)
 }
 
 // CreateOrder creates an order (synchronous API for external use)
@@ -327,9 +348,52 @@ func (app *BlackTraceApp) ProposePrice(orderID OrderID, price, amount uint64) {
 	}
 }
 
+// ListProposals returns all proposals for a given order
+func (app *BlackTraceApp) ListProposals(orderID OrderID) []*Proposal {
+	app.proposalsMux.RLock()
+	defer app.proposalsMux.RUnlock()
+
+	proposals := make([]*Proposal, 0)
+	for _, proposal := range app.proposals {
+		if proposal.OrderID == orderID {
+			proposals = append(proposals, proposal)
+		}
+	}
+
+	return proposals
+}
+
+// AcceptProposal accepts a specific proposal
+func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
+	app.proposalsMux.Lock()
+	defer app.proposalsMux.Unlock()
+
+	proposal, ok := app.proposals[proposalID]
+	if !ok {
+		return fmt.Errorf("proposal %s not found", proposalID)
+	}
+
+	// Update status to accepted
+	proposal.Status = ProposalStatusAccepted
+
+	log.Printf("App: Accepted proposal %s (Price: $%d, Amount: %d)", proposalID, proposal.Price, proposal.Amount)
+
+	// TODO: In a real implementation, this would:
+	// 1. Broadcast acceptance to the network
+	// 2. Initiate HTLC setup
+	// 3. Move to settlement phase
+
+	return nil
+}
+
 // GetStatus returns the node's status
 func (app *BlackTraceApp) GetStatus() NodeStatus {
 	return app.network.GetStatus()
+}
+
+// GetPeerID returns this node's peer ID
+func (app *BlackTraceApp) GetPeerID() PeerID {
+	return PeerID(app.network.host.ID().String())
 }
 
 // ConnectToPeer connects to a peer by multiaddr

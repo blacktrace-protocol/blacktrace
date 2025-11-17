@@ -12,6 +12,9 @@ type OrderID string
 // PeerID uniquely identifies a peer
 type PeerID string
 
+// ProposalID uniquely identifies a proposal
+type ProposalID string
+
 // OrderType represents buy or sell
 type OrderType string
 
@@ -27,6 +30,15 @@ const (
 	StablecoinUSDC StablecoinType = "USDC"
 	StablecoinUSDT StablecoinType = "USDT"
 	StablecoinDAI  StablecoinType = "DAI"
+)
+
+// ProposalStatus represents the state of a proposal
+type ProposalStatus string
+
+const (
+	ProposalStatusPending  ProposalStatus = "Pending"
+	ProposalStatusAccepted ProposalStatus = "Accepted"
+	ProposalStatusRejected ProposalStatus = "Rejected"
 )
 
 // OrderAnnouncement is broadcast when an order is created
@@ -52,11 +64,13 @@ type OrderDetails struct {
 
 // Proposal during price negotiation
 type Proposal struct {
-	OrderID   OrderID   `json:"order_id"`
-	Price     uint64    `json:"price"`
-	Amount    uint64    `json:"amount"`
-	Proposer  string    `json:"proposer"` // "Maker" or "Taker"
-	Timestamp time.Time `json:"timestamp"`
+	ProposalID ProposalID     `json:"proposal_id"`
+	OrderID    OrderID        `json:"order_id"`
+	Price      uint64         `json:"price"`
+	Amount     uint64         `json:"amount"`
+	ProposerID PeerID         `json:"proposer_id"`
+	Status     ProposalStatus `json:"status"`
+	Timestamp  time.Time      `json:"timestamp"`
 }
 
 // Message is the wire protocol envelope
@@ -68,6 +82,11 @@ type Message struct {
 // NewOrderID generates a new order ID
 func NewOrderID() OrderID {
 	return OrderID(fmt.Sprintf("order_%d", time.Now().Unix()))
+}
+
+// NewProposalID generates a new proposal ID
+func NewProposalID(orderID OrderID) ProposalID {
+	return ProposalID(fmt.Sprintf("%s_proposal_%d", orderID, time.Now().UnixNano()))
 }
 
 // MarshalMessage creates a wire protocol message
