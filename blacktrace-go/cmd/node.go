@@ -7,11 +7,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/blacktrace/blacktrace/node"
 	"github.com/spf13/cobra"
 )
 
 var (
-	nodePort    int
+	nodePort int
+	apiPort  int
 	connectAddr string
 )
 
@@ -22,6 +24,7 @@ var nodeCmd = &cobra.Command{
 
 The node will:
   - Listen for incoming peer connections on the specified port
+  - Start HTTP API server for CLI communication
   - Automatically discover peers via mDNS
   - Handle order announcements and negotiations
   - Manage HTLC settlements (when on-chain integration is ready)`,
@@ -31,7 +34,8 @@ The node will:
 func init() {
 	rootCmd.AddCommand(nodeCmd)
 
-	nodeCmd.Flags().IntVarP(&nodePort, "port", "p", 9000, "Port to listen on")
+	nodeCmd.Flags().IntVarP(&nodePort, "port", "p", 9000, "Port to listen on for P2P")
+	nodeCmd.Flags().IntVar(&apiPort, "api-port", 8080, "Port for HTTP API server")
 	nodeCmd.Flags().StringVarP(&connectAddr, "connect", "c", "", "Multiaddr of peer to connect to (optional)")
 }
 
@@ -40,26 +44,42 @@ func runNode(cmd *cobra.Command, args []string) {
 	fmt.Printf("║   BlackTrace Node                           ║\n")
 	fmt.Printf("╚══════════════════════════════════════════════╝\n\n")
 
-	// Import at runtime to avoid circular dependency
-	// In real implementation, this would be a proper import
-	fmt.Printf("🚀 Starting BlackTrace node on port %d...\n", nodePort)
+	fmt.Printf("🚀 Starting BlackTrace node...\n")
+	fmt.Printf("   P2P Port: %d\n", nodePort)
+	fmt.Printf("   API Port: %d\n\n", apiPort)
 
-	// TODO: Replace with actual implementation
-	// app, err := main.NewBlackTraceApp(nodePort)
-	// if err != nil {
-	//     log.Fatalf("Failed to create app: %v", err)
-	// }
-	// app.Run()
+	// Create and start the application
+	app, err := node.NewBlackTraceApp(nodePort)
+	if err != nil {
+		log.Fatalf("Failed to create app: %v", err)
+	}
+	app.Run()
 
-	log.Printf("✅ Node online - Peer ID: [will be shown when app is initialized]")
-	log.Printf("📡 Listening on: /ip4/0.0.0.0/tcp/%d", nodePort)
-
-	if connectAddr != "" {
-		log.Printf("🔗 Connecting to peer: %s", connectAddr)
-		// TODO: app.network.CommandChan() <- NetworkCommand{Type: "connect", Addr: connectAddr}
+	// Start API server
+	apiServer := node.NewAPIServer(app, apiPort)
+	if err := apiServer.Start(); err != nil {
+		log.Fatalf("Failed to start API server: %v", err)
 	}
 
-	log.Printf("\nNode is running. Press Ctrl+C to stop.\n")
+	// Get node status
+	status := app.GetStatus()
+	fmt.Printf("✅ Node started successfully!\n\n")
+	fmt.Printf("📍 Node Info:\n")
+	fmt.Printf("   Peer ID: %s\n", status.PeerID)
+	fmt.Printf("   Listening on: %s\n\n", status.ListenAddr)
+	fmt.Printf("🔌 API Server: http://localhost:%d\n", apiPort)
+
+	// Show multiaddr for connecting
+	fmt.Printf("\n🔍 Use this multiaddr to connect other nodes:\n")
+	fmt.Printf("   /ip4/127.0.0.1/tcp/%d/p2p/%s\n", nodePort, status.PeerID)
+
+	// Connect to peer if specified
+	if connectAddr != "" {
+		fmt.Printf("\n🔗 Connecting to peer: %s\n", connectAddr)
+		app.ConnectToPeer(connectAddr)
+	}
+
+	fmt.Printf("\nNode is running. Press Ctrl+C to stop.\n\n")
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
@@ -67,4 +87,6 @@ func runNode(cmd *cobra.Command, args []string) {
 	<-sigChan
 
 	fmt.Println("\n👋 Shutting down node...")
+	apiServer.Stop()
+	app.Shutdown()
 }

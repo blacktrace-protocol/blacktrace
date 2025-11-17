@@ -7,6 +7,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// Default API URL for connecting to running node
+const apiURL = "http://localhost:8080"
+
 var rootCmd = &cobra.Command{
 	Use:   "blacktrace",
 	Short: "BlackTrace - Zero-Knowledge OTC Protocol for Institutional Zcash Trading",

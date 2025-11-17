@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/spf13/cobra"
 )
@@ -60,24 +64,82 @@ func runOrderCreate(cmd *cobra.Command, args []string) {
 	fmt.Printf("   Price Range: $%d - $%d per ZEC\n", minPrice, maxPrice)
 	fmt.Printf("   Total Range: $%d - $%d %s\n\n", amount*minPrice, amount*maxPrice, stablecoin)
 
-	// TODO: Implement actual order creation
-	// app.CreateOrder(amount, stablecoin, minPrice, maxPrice)
+	// Create request body
+	reqBody := map[string]interface{}{
+		"amount":     amount,
+		"stablecoin": stablecoin,
+		"min_price":  minPrice,
+		"max_price":  maxPrice,
+	}
 
-	fmt.Printf("✅ Order created: order_[ID will be shown]\n")
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	// Send HTTP request to node's API
+	resp, err := http.Post(apiURL+"/orders/create", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Printf("❌ Error connecting to node: %v\n", err)
+		fmt.Printf("   Make sure a node is running (./blacktrace node)\n")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		json.Unmarshal(body, &errResp)
+		fmt.Printf("❌ Error: %s\n", errResp["error"])
+		return
+	}
+
+	var result map[string]string
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Printf("❌ Error parsing response: %v\n", err)
+		return
+	}
+
+	fmt.Printf("✅ Order created: %s\n", result["order_id"])
 	fmt.Printf("📤 Broadcasting to network...\n")
 }
 
 func runOrderList(cmd *cobra.Command, args []string) {
 	fmt.Printf("🔍 Listing all orders:\n\n")
 
-	// TODO: Implement actual order listing
-	// orders := app.ListOrders()
-	// for _, order := range orders {
-	//     fmt.Printf("📋 Order ID: %s\n", order.OrderID)
-	//     fmt.Printf("   Type: %s\n", order.OrderType)
-	//     fmt.Printf("   Stablecoin: %s\n", order.Stablecoin)
-	//     fmt.Printf("   Timestamp: %d\n\n", order.Timestamp)
-	// }
+	// Send HTTP request to node's API
+	resp, err := http.Get(apiURL + "/orders")
+	if err != nil {
+		fmt.Printf("❌ Error connecting to node: %v\n", err)
+		fmt.Printf("   Make sure a node is running (./blacktrace node)\n")
+		return
+	}
+	defer resp.Body.Close()
 
-	fmt.Printf("Found 0 orders (implementation pending)\n")
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Orders []map[string]interface{} `json:"orders"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Printf("❌ Error parsing response: %v\n", err)
+		return
+	}
+
+	if len(result.Orders) == 0 {
+		fmt.Printf("Found 0 orders\n")
+		return
+	}
+
+	for _, order := range result.Orders {
+		fmt.Printf("📋 Order ID: %v\n", order["order_id"])
+		fmt.Printf("   Type: %v\n", order["order_type"])
+		fmt.Printf("   Stablecoin: %v\n", order["stablecoin"])
+		fmt.Printf("   Timestamp: %v\n\n", order["timestamp"])
+	}
+
+	fmt.Printf("Total: %d orders\n", len(result.Orders))
 }

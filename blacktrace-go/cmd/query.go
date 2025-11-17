@@ -1,7 +1,10 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/spf13/cobra"
 )
@@ -35,25 +38,68 @@ func init() {
 func runQueryPeers(cmd *cobra.Command, args []string) {
 	fmt.Printf("📡 Connected Peers:\n\n")
 
-	// TODO: Implement actual peer query
-	// peers := app.network.GetPeers()
-	// for _, peer := range peers {
-	//     fmt.Printf("🔗 %s\n", peer.ID)
-	//     fmt.Printf("   Address: %s\n\n", peer.Addr)
-	// }
+	resp, err := http.Get(apiURL + "/peers")
+	if err != nil {
+		fmt.Printf("❌ Error connecting to node: %v\n", err)
+		fmt.Printf("   Make sure a node is running (./blacktrace node)\n")
+		return
+	}
+	defer resp.Body.Close()
 
-	fmt.Printf("No peers connected (implementation pending)\n")
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Peers []struct {
+			ID      string `json:"id"`
+			Address string `json:"address"`
+		} `json:"peers"`
+	}
+
+	if err := json.Unmarshal(body, &result); err != nil {
+		fmt.Printf("❌ Error parsing response: %v\n", err)
+		return
+	}
+
+	if len(result.Peers) == 0 {
+		fmt.Printf("No peers connected\n")
+		return
+	}
+
+	for _, peer := range result.Peers {
+		fmt.Printf("🔗 %s\n", peer.ID)
+		fmt.Printf("   Address: %s\n\n", peer.Address)
+	}
+
+	fmt.Printf("Total: %d peers\n", len(result.Peers))
 }
 
 func runQueryStatus(cmd *cobra.Command, args []string) {
 	fmt.Printf("📊 Node Status:\n\n")
 
-	// TODO: Implement actual status query
-	// status := app.GetStatus()
-	// fmt.Printf("Peer ID: %s\n", status.PeerID)
-	// fmt.Printf("Listening: %s\n", status.ListenAddr)
-	// fmt.Printf("Peers: %d\n", status.PeerCount)
-	// fmt.Printf("Orders: %d\n", status.OrderCount)
+	resp, err := http.Get(apiURL + "/status")
+	if err != nil {
+		fmt.Printf("❌ Error connecting to node: %v\n", err)
+		fmt.Printf("   Make sure a node is running (./blacktrace node)\n")
+		return
+	}
+	defer resp.Body.Close()
 
-	fmt.Printf("Status: Running (implementation pending)\n")
+	body, _ := io.ReadAll(resp.Body)
+
+	var status struct {
+		PeerID     string `json:"peer_id"`
+		ListenAddr string `json:"listen_addr"`
+		PeerCount  int    `json:"peer_count"`
+		OrderCount int    `json:"order_count"`
+	}
+
+	if err := json.Unmarshal(body, &status); err != nil {
+		fmt.Printf("❌ Error parsing response: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Peer ID: %s\n", status.PeerID)
+	fmt.Printf("Listening: %s\n", status.ListenAddr)
+	fmt.Printf("Peers: %d\n", status.PeerCount)
+	fmt.Printf("Orders: %d\n", status.OrderCount)
 }

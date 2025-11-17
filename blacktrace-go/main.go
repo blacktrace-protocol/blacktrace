@@ -1,6 +1,6 @@
 package main
 
-import "github.com/blacktrace/node/cmd"
+import "github.com/blacktrace/blacktrace/cmd"
 
 func main() {
 	cmd.Execute()

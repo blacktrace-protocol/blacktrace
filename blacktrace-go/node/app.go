@@ -1,4 +1,4 @@
-package main
+package node
 
 import (
 	"encoding/json"
@@ -324,5 +324,26 @@ func (app *BlackTraceApp) ProposePrice(orderID OrderID, price, amount uint64) {
 		OrderID: orderID,
 		Price:   price,
 		Amount:  amount,
+	}
+}
+
+// GetStatus returns the node's status
+func (app *BlackTraceApp) GetStatus() NodeStatus {
+	return app.network.GetStatus()
+}
+
+// ConnectToPeer connects to a peer by multiaddr
+func (app *BlackTraceApp) ConnectToPeer(addr string) {
+	app.network.CommandChan() <- NetworkCommand{
+		Type: "connect",
+		Addr: addr,
+	}
+}
+
+// Shutdown gracefully shuts down the application
+func (app *BlackTraceApp) Shutdown() {
+	close(app.shutdownCh)
+	app.network.CommandChan() <- NetworkCommand{
+		Type: "shutdown",
 	}
 }

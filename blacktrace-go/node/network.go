@@ -1,4 +1,4 @@
-package main
+package node
 
 import (
 	"bufio"
@@ -407,4 +407,58 @@ func (nm *NetworkManager) shutdown() {
 	}
 
 	log.Println("Network manager shut down")
+}
+
+// PeerConnection represents a peer connection
+type PeerConnection struct {
+	ID   PeerID
+	Addr string
+}
+
+// NodeStatus represents the node's status
+type NodeStatus struct {
+	PeerID     string
+	ListenAddr string
+	PeerCount  int
+}
+
+// GetPeers returns list of connected peers
+func (nm *NetworkManager) GetPeers() []PeerConnection {
+	nm.peersMux.RLock()
+	defer nm.peersMux.RUnlock()
+
+	peers := make([]PeerConnection, 0, len(nm.peers))
+	for localID, p2pID := range nm.peers {
+		// Get peer's addresses
+		addrs := nm.host.Peerstore().Addrs(p2pID)
+		addrStr := "unknown"
+		if len(addrs) > 0 {
+			addrStr = addrs[0].String()
+		}
+
+		peers = append(peers, PeerConnection{
+			ID:   localID,
+			Addr: addrStr,
+		})
+	}
+
+	return peers
+}
+
+// GetStatus returns the node's current status
+func (nm *NetworkManager) GetStatus() NodeStatus {
+	nm.peersMux.RLock()
+	peerCount := len(nm.peers)
+	nm.peersMux.RUnlock()
+
+	listenAddr := "unknown"
+	if len(nm.host.Addrs()) > 0 {
+		listenAddr = nm.host.Addrs()[0].String()
+	}
+
+	return NodeStatus{
+		PeerID:     nm.host.ID().String(),
+		ListenAddr: listenAddr,
+		PeerCount:  peerCount,
+	}
 }

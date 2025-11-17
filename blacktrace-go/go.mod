@@ -1,4 +1,4 @@
-module github.com/blacktrace/node
+module github.com/blacktrace/blacktrace
 
 go 1.21
 

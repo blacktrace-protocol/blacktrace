@@ -1,7 +1,11 @@
 package cmd
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 
 	"github.com/spf13/cobra"
 )
@@ -48,8 +52,32 @@ func runNegotiateRequest(cmd *cobra.Command, args []string) {
 	orderID := args[0]
 	fmt.Printf("💬 Requesting details for order: %s\n", orderID)
 
-	// TODO: Implement actual negotiation request
-	// app.RequestOrderDetails(orderID)
+	reqBody := map[string]string{
+		"order_id": orderID,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	resp, err := http.Post(apiURL+"/negotiate/request", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Printf("❌ Error connecting to node: %v\n", err)
+		fmt.Printf("   Make sure a node is running (./blacktrace node)\n")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		json.Unmarshal(body, &errResp)
+		fmt.Printf("❌ Error: %s\n", errResp["error"])
+		return
+	}
 
 	fmt.Printf("✅ Request sent to maker\n")
 	fmt.Printf("📨 Waiting for response...\n")
@@ -62,8 +90,34 @@ func runNegotiatePropose(cmd *cobra.Command, args []string) {
 	fmt.Printf("   Amount: %d ZEC\n", proposeAmount)
 	fmt.Printf("   Total: $%d\n\n", proposePrice*proposeAmount)
 
-	// TODO: Implement actual price proposal
-	// app.ProposePrice(orderID, proposePrice, proposeAmount)
+	reqBody := map[string]interface{}{
+		"order_id": orderID,
+		"price":    proposePrice,
+		"amount":   proposeAmount,
+	}
+
+	jsonData, err := json.Marshal(reqBody)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	resp, err := http.Post(apiURL+"/negotiate/propose", "application/json", bytes.NewBuffer(jsonData))
+	if err != nil {
+		fmt.Printf("❌ Error connecting to node: %v\n", err)
+		fmt.Printf("   Make sure a node is running (./blacktrace node)\n")
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != http.StatusOK {
+		var errResp map[string]string
+		json.Unmarshal(body, &errResp)
+		fmt.Printf("❌ Error: %s\n", errResp["error"])
+		return
+	}
 
 	fmt.Printf("✅ Proposal sent\n")
 }
