@@ -58,14 +58,23 @@ func init() {
 }
 
 func runOrderCreate(cmd *cobra.Command, args []string) {
+	// Load session token
+	sessionID, _, err := loadSessionLocal()
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		fmt.Printf("   Please login first: ./blacktrace auth login\n")
+		return
+	}
+
 	fmt.Printf("📝 Creating order:\n")
 	fmt.Printf("   Amount: %d ZEC\n", amount)
 	fmt.Printf("   Stablecoin: %s\n", stablecoin)
 	fmt.Printf("   Price Range: $%d - $%d per ZEC\n", minPrice, maxPrice)
 	fmt.Printf("   Total Range: $%d - $%d %s\n\n", amount*minPrice, amount*maxPrice, stablecoin)
 
-	// Create request body
+	// Create request body with session ID
 	reqBody := map[string]interface{}{
+		"session_id": sessionID,
 		"amount":     amount,
 		"stablecoin": stablecoin,
 		"min_price":  minPrice,
@@ -93,6 +102,9 @@ func runOrderCreate(cmd *cobra.Command, args []string) {
 		var errResp map[string]string
 		json.Unmarshal(body, &errResp)
 		fmt.Printf("❌ Error: %s\n", errResp["error"])
+		if resp.StatusCode == http.StatusUnauthorized {
+			fmt.Printf("   Your session may have expired. Please login again.\n")
+		}
 		return
 	}
 

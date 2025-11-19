@@ -105,6 +105,14 @@ func runNegotiateRequest(cmd *cobra.Command, args []string) {
 }
 
 func runNegotiatePropose(cmd *cobra.Command, args []string) {
+	// Load session token
+	sessionID, _, err := loadSessionLocal()
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		fmt.Printf("   Please login first: ./blacktrace auth login\n")
+		return
+	}
+
 	orderID := args[0]
 	fmt.Printf("💰 Proposing for order: %s\n", orderID)
 	fmt.Printf("   Price: $%d per ZEC\n", proposePrice)
@@ -112,9 +120,10 @@ func runNegotiatePropose(cmd *cobra.Command, args []string) {
 	fmt.Printf("   Total: $%d\n\n", proposePrice*proposeAmount)
 
 	reqBody := map[string]interface{}{
-		"order_id": orderID,
-		"price":    proposePrice,
-		"amount":   proposeAmount,
+		"session_id": sessionID,
+		"order_id":   orderID,
+		"price":      proposePrice,
+		"amount":     proposeAmount,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -137,6 +146,9 @@ func runNegotiatePropose(cmd *cobra.Command, args []string) {
 		var errResp map[string]string
 		json.Unmarshal(body, &errResp)
 		fmt.Printf("❌ Error: %s\n", errResp["error"])
+		if resp.StatusCode == http.StatusUnauthorized {
+			fmt.Printf("   Your session may have expired. Please login again.\n")
+		}
 		return
 	}
 
