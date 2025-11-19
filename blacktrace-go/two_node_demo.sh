@@ -153,7 +153,17 @@ ORDER_RESPONSE=$(curl -s -X POST http://localhost:$NODE_A_API_PORT/orders/create
     -H 'Content-Type: application/json' \
     -d "{\"session_id\":\"$NODE_A_SESSION\",\"amount\":10000,\"stablecoin\":\"USDC\",\"min_price\":450,\"max_price\":470}")
 
+# Debug: Show response if order creation fails
+if echo "$ORDER_RESPONSE" | grep -q "error"; then
+    print_error "Order creation failed: $ORDER_RESPONSE"
+    exit 1
+fi
+
 ORDER_ID=$(echo "$ORDER_RESPONSE" | grep -o '"order_id":"[^"]*"' | cut -d'"' -f4)
+if [ -z "$ORDER_ID" ]; then
+    print_error "Failed to extract order ID from response: $ORDER_RESPONSE"
+    exit 1
+fi
 print_success "Order created: $ORDER_ID"
 echo -e "   ${CYAN}Amount:${NC} 10,000 ZEC"
 echo -e "   ${CYAN}Price Range:${NC} \$450 - \$470 per ZEC"
@@ -221,6 +231,12 @@ PROPOSALS_RAW=$(curl -s -X POST http://localhost:$NODE_A_API_PORT/negotiate/prop
     -H 'Content-Type: application/json' \
     -d "{\"order_id\":\"$ORDER_ID\"}")
 
+# Check if we got proposals
+if echo "$PROPOSALS_RAW" | grep -q '"proposals":\[\]'; then
+    print_error "No proposals found. Response: $PROPOSALS_RAW"
+    exit 1
+fi
+
 # Pretty print proposals
 echo "$PROPOSALS_RAW" | grep -o '"proposal_id":"[^"]*"' | cut -d'"' -f4 | while read -r pid; do
     echo -e "${CYAN}  Proposal ID:${NC} $pid"
@@ -228,6 +244,10 @@ done
 
 # Extract first proposal ID
 PROPOSAL_ID=$(echo "$PROPOSALS_RAW" | grep -o '"proposal_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+if [ -z "$PROPOSAL_ID" ]; then
+    print_error "Failed to extract proposal ID. Response: $PROPOSALS_RAW"
+    exit 1
+fi
 print_success "Found proposals for order $ORDER_ID"
 
 sleep $STEP_DELAY
