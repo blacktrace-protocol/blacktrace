@@ -174,6 +174,22 @@ else
     print_error "Order not yet visible on Node B (may need more time)"
 fi
 
+sleep $STEP_DELAY
+
+# Step 7.5: Request Order Details (triggers ECIES encryption)
+print_header "Step 7.5: Request Encrypted Order Details (Node B)"
+print_step "Taker requests full order details (will be ECIES encrypted)"
+curl -s -X POST http://localhost:$NODE_B_API_PORT/negotiate/request \
+    -H 'Content-Type: application/json' \
+    -d "{\"order_id\":\"$ORDER_ID\"}" > /dev/null
+
+print_success "Order details requested - will be sent ECIES encrypted"
+echo -e "   ${CYAN}Encryption:${NC} ECIES (AES-256-GCM + ECDH)"
+echo -e "   ${CYAN}Recipient:${NC} Only bob can decrypt"
+echo -e "   ${CYAN}Check logs:${NC} grep 'encrypted order details' /tmp/node-*.log"
+
+sleep $STEP_DELAY
+
 # Step 9: Make first proposal from Node B
 print_header "Step 8: Proposal #1 (Node B - Taker)"
 print_step "Taker proposes: \$460 per ZEC for 10,000 ZEC (authenticated as bob)"
@@ -249,34 +265,34 @@ print_header "Step 13: Verify Cryptographic Features (Phase 2B)"
 print_step "Checking for signed messages in node logs..."
 
 # Check Node A for signed message broadcasts
-SIGNED_BROADCASTS_A=$(grep -c "Broadcasting signed message" /tmp/node-a.log 2>/dev/null || echo "0")
-if [ "$SIGNED_BROADCASTS_A" -gt 0 ]; then
+SIGNED_BROADCASTS_A=$(grep "Broadcasting signed message" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+if [ "$SIGNED_BROADCASTS_A" -gt "0" ]; then
     print_success "Node A: Broadcasted $SIGNED_BROADCASTS_A signed messages"
 else
     print_error "Node A: No signed message broadcasts detected"
 fi
 
 # Check Node B for signed message verification
-VERIFIED_MSGS_B=$(grep -c "Verified signed message" /tmp/node-b.log 2>/dev/null || echo "0")
-if [ "$VERIFIED_MSGS_B" -gt 0 ]; then
+VERIFIED_MSGS_B=$(grep "Verified signed message" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
+if [ "$VERIFIED_MSGS_B" -gt "0" ]; then
     print_success "Node B: Verified $VERIFIED_MSGS_B signed messages"
 else
     print_error "Node B: No signed message verifications detected"
 fi
 
 # Check for CryptoManager initialization
-CRYPTO_INIT_A=$(grep -c "CryptoManager initialized" /tmp/node-a.log 2>/dev/null || echo "0")
-CRYPTO_INIT_B=$(grep -c "CryptoManager initialized" /tmp/node-b.log 2>/dev/null || echo "0")
-if [ "$CRYPTO_INIT_A" -gt 0 ] && [ "$CRYPTO_INIT_B" -gt 0 ]; then
+CRYPTO_INIT_A=$(grep "CryptoManager initialized" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+CRYPTO_INIT_B=$(grep "CryptoManager initialized" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
+if [ "$CRYPTO_INIT_A" -gt "0" ] && [ "$CRYPTO_INIT_B" -gt "0" ]; then
     print_success "CryptoManager initialized on both nodes (ECDSA signing active)"
 else
     print_error "CryptoManager not properly initialized"
 fi
 
 # Check for peer key caching
-PEER_KEYS_A=$(grep -c "Cached public key for peer" /tmp/node-a.log 2>/dev/null || echo "0")
-PEER_KEYS_B=$(grep -c "Cached public key for peer" /tmp/node-b.log 2>/dev/null || echo "0")
-if [ "$PEER_KEYS_A" -gt 0 ] || [ "$PEER_KEYS_B" -gt 0 ]; then
+PEER_KEYS_A=$(grep "Cached public key for peer" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+PEER_KEYS_B=$(grep "Cached public key for peer" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
+if [ "$PEER_KEYS_A" -gt "0" ] || [ "$PEER_KEYS_B" -gt "0" ]; then
     print_success "Peer public keys cached (ready for ECIES encryption)"
 else
     print_error "No peer key caching detected"
@@ -345,8 +361,8 @@ echo ""
 
 # ECIES encryption status
 echo -e "${YELLOW}6. ECIES Encryption Status${NC}"
-ECIES_SENT=$(grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | wc -l)
-ECIES_DECRYPTED=$(grep "Decrypted order details" /tmp/node-b.log 2>/dev/null | wc -l)
+ECIES_SENT=$(grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+ECIES_DECRYPTED=$(grep "Decrypted order details" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
 if [ "$ECIES_SENT" -gt "0" ]; then
     echo -e "   ${GREEN}✓ ECIES Encryption Used:${NC} $ECIES_SENT encrypted messages sent"
     grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | head -3 | sed 's/^/      /'
