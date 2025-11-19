@@ -46,6 +46,7 @@ type OrderAnnouncement struct {
 	OrderID          OrderID        `json:"order_id"`
 	OrderType        OrderType      `json:"order_type"`
 	Stablecoin       StablecoinType `json:"stablecoin"`
+	MakerID          PeerID         `json:"maker_id"` // NEW: Needed to send encrypted proposals
 	EncryptedDetails []byte         `json:"encrypted_details"`
 	ProofCommitment  []byte         `json:"proof_commitment"`
 	Timestamp        int64          `json:"timestamp"`
@@ -66,6 +67,18 @@ type OrderDetails struct {
 type EncryptedOrderDetailsMessage struct {
 	OrderID          OrderID `json:"order_id"`
 	EncryptedPayload []byte  `json:"encrypted_payload"` // ECIES encrypted OrderDetails
+}
+
+// EncryptedProposalMessage sent via direct stream to maker (prevents frontrunning)
+type EncryptedProposalMessage struct {
+	OrderID          OrderID `json:"order_id"`
+	EncryptedPayload []byte  `json:"encrypted_payload"` // ECIES encrypted Proposal
+}
+
+// EncryptedAcceptanceMessage sent via direct stream to proposer (prevents value leakage)
+type EncryptedAcceptanceMessage struct {
+	ProposalID       ProposalID `json:"proposal_id"`
+	EncryptedPayload []byte     `json:"encrypted_payload"` // ECIES encrypted acceptance details
 }
 
 // Proposal during price negotiation

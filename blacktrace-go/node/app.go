@@ -250,6 +250,87 @@ func (app *BlackTraceApp) handleMessagePayload(from PeerID, msgType string, payl
 
 		// Store decrypted details or display to user
 		// TODO: Add to a separate map for decrypted order details
+
+	case "encrypted_proposal":
+		var encMsg EncryptedProposalMessage
+		if err := json.Unmarshal(payload, &encMsg); err != nil {
+			log.Printf("Failed to unmarshal encrypted proposal: %v", err)
+			return
+		}
+
+		// Decrypt if we have crypto manager
+		if app.cryptoMgr == nil {
+			log.Printf("Cannot decrypt proposal: CryptoManager not initialized")
+			return
+		}
+
+		// Deserialize ECIES message
+		eciesMsg, err := DeserializeECIESMessage(encMsg.EncryptedPayload)
+		if err != nil {
+			log.Printf("Failed to deserialize ECIES proposal message: %v", err)
+			return
+		}
+
+		// Decrypt
+		decrypted, err := app.cryptoMgr.ECIESDecrypt(eciesMsg)
+		if err != nil {
+			log.Printf("Failed to decrypt proposal: %v", err)
+			return
+		}
+
+		// Parse decrypted proposal
+		var proposal Proposal
+		if err := json.Unmarshal(decrypted, &proposal); err != nil {
+			log.Printf("Failed to unmarshal decrypted proposal: %v", err)
+			return
+		}
+
+		log.Printf("App: Decrypted proposal %s from %s: Price=$%d, Amount=%d (frontrunning prevented)",
+			proposal.ProposalID, from, proposal.Price, proposal.Amount)
+
+		// Store the proposal
+		app.proposalsMux.Lock()
+		app.proposals[proposal.ProposalID] = &proposal
+		app.proposalsMux.Unlock()
+
+	case "encrypted_acceptance":
+		var encMsg EncryptedAcceptanceMessage
+		if err := json.Unmarshal(payload, &encMsg); err != nil {
+			log.Printf("Failed to unmarshal encrypted acceptance: %v", err)
+			return
+		}
+
+		// Decrypt if we have crypto manager
+		if app.cryptoMgr == nil {
+			log.Printf("Cannot decrypt acceptance: CryptoManager not initialized")
+			return
+		}
+
+		// Deserialize ECIES message
+		eciesMsg, err := DeserializeECIESMessage(encMsg.EncryptedPayload)
+		if err != nil {
+			log.Printf("Failed to deserialize ECIES acceptance message: %v", err)
+			return
+		}
+
+		// Decrypt
+		decrypted, err := app.cryptoMgr.ECIESDecrypt(eciesMsg)
+		if err != nil {
+			log.Printf("Failed to decrypt acceptance: %v", err)
+			return
+		}
+
+		// Parse decrypted acceptance
+		var acceptance map[string]interface{}
+		if err := json.Unmarshal(decrypted, &acceptance); err != nil {
+			log.Printf("Failed to unmarshal decrypted acceptance: %v", err)
+			return
+		}
+
+		log.Printf("App: Decrypted acceptance for proposal %s: Status=%s (value leakage prevented)",
+			acceptance["proposal_id"], acceptance["status"])
+
+		// TODO: Update proposal status and move to settlement phase
 	}
 }
 
@@ -311,8 +392,9 @@ func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, 
 		OrderID:          orderID,
 		OrderType:        OrderTypeSell,
 		Stablecoin:       stablecoin,
-		EncryptedDetails: []byte{}, // Simplified
-		ProofCommitment:  []byte{}, // Would call Rust crypto here
+		MakerID:          app.GetPeerID(), // NEW: Include maker ID for encrypted proposals
+		EncryptedDetails: []byte{},        // Simplified
+		ProofCommitment:  []byte{},        // Would call Rust crypto here
 		Timestamp:        time.Now().Unix(),
 		Expiry:           time.Now().Add(1 * time.Hour).Unix(),
 	}
@@ -443,6 +525,114 @@ func (app *BlackTraceApp) sendEncryptedOrderDetails(to PeerID, orderID OrderID) 
 	return nil
 }
 
+// sendEncryptedProposal encrypts and sends a proposal to the maker (prevents frontrunning)
+func (app *BlackTraceApp) sendEncryptedProposal(makerID PeerID, proposal Proposal) error {
+	// Get maker's public key
+	app.peerKeysMux.RLock()
+	makerPubKeyBytes, ok := app.peerKeys[makerID]
+	app.peerKeysMux.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("maker public key not cached for peer: %s", makerID)
+	}
+
+	// Parse maker's public key
+	makerPubKey, err := ParsePublicKey(makerPubKeyBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse maker public key: %w", err)
+	}
+
+	// Marshal proposal to JSON
+	proposalJSON, err := json.Marshal(proposal)
+	if err != nil {
+		return fmt.Errorf("failed to marshal proposal: %w", err)
+	}
+
+	// Encrypt with maker's public key
+	encrypted, err := ECIESEncrypt(makerPubKey, proposalJSON)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt proposal: %w", err)
+	}
+
+	// Serialize encrypted message
+	encryptedPayload := SerializeECIESMessage(encrypted)
+
+	// Create encrypted proposal message
+	encryptedMsg := EncryptedProposalMessage{
+		OrderID:          proposal.OrderID,
+		EncryptedPayload: encryptedPayload,
+	}
+
+	// Send as signed message to maker only (not broadcast)
+	if err := app.sendSignedMessage(makerID, "encrypted_proposal", encryptedMsg); err != nil {
+		return fmt.Errorf("failed to send encrypted proposal: %w", err)
+	}
+
+	log.Printf("App: Sent encrypted proposal %s to maker %s (prevents frontrunning)",
+		proposal.ProposalID, makerID)
+
+	return nil
+}
+
+// sendEncryptedAcceptance encrypts and sends acceptance to proposer (prevents value leakage)
+func (app *BlackTraceApp) sendEncryptedAcceptance(proposerID PeerID, proposal *Proposal) error {
+	// Get proposer's public key
+	app.peerKeysMux.RLock()
+	proposerPubKeyBytes, ok := app.peerKeys[proposerID]
+	app.peerKeysMux.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("proposer public key not cached for peer: %s", proposerID)
+	}
+
+	// Parse proposer's public key
+	proposerPubKey, err := ParsePublicKey(proposerPubKeyBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse proposer public key: %w", err)
+	}
+
+	// Create acceptance details (include full proposal for context)
+	acceptanceDetails := map[string]interface{}{
+		"proposal_id": proposal.ProposalID,
+		"order_id":    proposal.OrderID,
+		"price":       proposal.Price,
+		"amount":      proposal.Amount,
+		"status":      "accepted",
+		"timestamp":   time.Now().Unix(),
+	}
+
+	// Marshal acceptance to JSON
+	acceptanceJSON, err := json.Marshal(acceptanceDetails)
+	if err != nil {
+		return fmt.Errorf("failed to marshal acceptance: %w", err)
+	}
+
+	// Encrypt with proposer's public key
+	encrypted, err := ECIESEncrypt(proposerPubKey, acceptanceJSON)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt acceptance: %w", err)
+	}
+
+	// Serialize encrypted message
+	encryptedPayload := SerializeECIESMessage(encrypted)
+
+	// Create encrypted acceptance message
+	encryptedMsg := EncryptedAcceptanceMessage{
+		ProposalID:       proposal.ProposalID,
+		EncryptedPayload: encryptedPayload,
+	}
+
+	// Send as signed message to proposer only (not broadcast)
+	if err := app.sendSignedMessage(proposerID, "encrypted_acceptance", encryptedMsg); err != nil {
+		return fmt.Errorf("failed to send encrypted acceptance: %w", err)
+	}
+
+	log.Printf("App: Sent encrypted acceptance for proposal %s to proposer %s (prevents value leakage)",
+		proposal.ProposalID, proposerID)
+
+	return nil
+}
+
 // broadcastSignedMessage signs and broadcasts a message via gossipsub
 func (app *BlackTraceApp) broadcastSignedMessage(msgType string, payload interface{}) error {
 	// Check if crypto manager is initialized
@@ -523,10 +713,25 @@ func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
 	app.proposals[proposalID] = &proposal
 	app.proposalsMux.Unlock()
 
-	// Broadcast SIGNED proposal
-	if err := app.broadcastSignedMessage("proposal", proposal); err != nil {
-		log.Printf("Failed to broadcast proposal: %v", err)
+	// Get maker ID from the order
+	app.ordersMux.RLock()
+	order, exists := app.orders[orderID]
+	app.ordersMux.RUnlock()
+
+	if !exists {
+		log.Printf("Failed to send proposal: order %s not found", orderID)
 		return
+	}
+
+	// Send ENCRYPTED proposal to maker only (prevents frontrunning)
+	if err := app.sendEncryptedProposal(order.MakerID, proposal); err != nil {
+		log.Printf("Failed to send encrypted proposal: %v", err)
+		// Fallback to public broadcast if encryption fails
+		log.Printf("Falling back to public proposal broadcast (WARNING: frontrunning possible)")
+		if err := app.broadcastSignedMessage("proposal", proposal); err != nil {
+			log.Printf("Failed to broadcast proposal: %v", err)
+			return
+		}
 	}
 
 	log.Printf("App: Proposed price $%d for order %s (Proposal ID: %s)", price, orderID, proposalID)
@@ -598,22 +803,34 @@ func (app *BlackTraceApp) ListProposals(orderID OrderID) []*Proposal {
 // AcceptProposal accepts a specific proposal
 func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 	app.proposalsMux.Lock()
-	defer app.proposalsMux.Unlock()
-
 	proposal, ok := app.proposals[proposalID]
 	if !ok {
+		app.proposalsMux.Unlock()
 		return fmt.Errorf("proposal %s not found", proposalID)
 	}
 
 	// Update status to accepted
 	proposal.Status = ProposalStatusAccepted
+	app.proposalsMux.Unlock()
 
 	log.Printf("App: Accepted proposal %s (Price: $%d, Amount: %d)", proposalID, proposal.Price, proposal.Amount)
 
-	// TODO: In a real implementation, this would:
-	// 1. Broadcast acceptance to the network
-	// 2. Initiate HTLC setup
-	// 3. Move to settlement phase
+	// Send ENCRYPTED acceptance to proposer only (prevents value leakage)
+	if err := app.sendEncryptedAcceptance(proposal.ProposerID, proposal); err != nil {
+		log.Printf("Failed to send encrypted acceptance: %v", err)
+		// Fallback to public broadcast if encryption fails
+		log.Printf("Falling back to public acceptance broadcast (WARNING: value leakage possible)")
+		if err := app.broadcastSignedMessage("acceptance", map[string]interface{}{
+			"proposal_id": proposal.ProposalID,
+			"status":      "accepted",
+		}); err != nil {
+			log.Printf("Failed to broadcast acceptance: %v", err)
+		}
+	}
+
+	// TODO: In a real implementation, this would also:
+	// 1. Initiate HTLC setup
+	// 2. Move to settlement phase
 
 	return nil
 }
