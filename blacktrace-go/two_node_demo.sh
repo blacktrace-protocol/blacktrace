@@ -352,27 +352,51 @@ echo -e "   2. Node B: Receive → ${GREEN}Verify ECDSA signature${NC} → ${GRE
 grep "Received signed order announcement" /tmp/node-b.log 2>/dev/null | head -1 | sed 's/^/      /'
 echo ""
 
-echo -e "${BLUE}Proposal Messages:${NC}"
-echo -e "   1. Node B: Create proposal → ${GREEN}Sign with ECDSA${NC} → Broadcast"
-grep "Broadcasting signed message.*proposal" /tmp/node-b.log 2>/dev/null | head -1 | sed 's/^/      /'
-echo -e "   2. Node A: Receive → ${GREEN}Verify ECDSA signature${NC} → Accept"
-grep "Received signed proposal" /tmp/node-a.log 2>/dev/null | head -1 | sed 's/^/      /'
+echo -e "${BLUE}Proposal Messages (Encrypted):${NC}"
+echo -e "   1. Node B: Create proposal → ${GREEN}Encrypt with maker's key (ECIES)${NC} → Send direct"
+grep "Sent encrypted proposal" /tmp/node-b.log 2>/dev/null | head -1 | sed 's/^/      /'
+echo -e "   2. Node A: Receive → ${GREEN}Decrypt with private key${NC} → Store"
+grep "Decrypted proposal" /tmp/node-a.log 2>/dev/null | head -1 | sed 's/^/      /'
+echo -e "   ${CYAN}Security:${NC} Proposals encrypted - prevents frontrunning"
 echo ""
 
 # ECIES encryption status
 echo -e "${YELLOW}6. ECIES Encryption Status${NC}"
-ECIES_SENT=$(grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
-ECIES_DECRYPTED=$(grep "Decrypted order details" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
-if [ "$ECIES_SENT" -gt "0" ]; then
-    echo -e "   ${GREEN}✓ ECIES Encryption Used:${NC} $ECIES_SENT encrypted messages sent"
-    grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | head -3 | sed 's/^/      /'
-    echo ""
-    echo -e "   ${GREEN}✓ ECIES Decryption:${NC} $ECIES_DECRYPTED messages decrypted"
-    grep "Decrypted order details" /tmp/node-b.log 2>/dev/null | head -3 | sed 's/^/      /'
+
+# Check order details encryption
+ECIES_ORDER_SENT=$(grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+ECIES_ORDER_DECRYPTED=$(grep "Decrypted order details" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
+
+# Check proposal encryption
+ECIES_PROPOSAL_SENT=$(grep "Sent encrypted proposal" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
+ECIES_PROPOSAL_DECRYPTED=$(grep "Decrypted proposal" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+
+# Check acceptance encryption
+ECIES_ACCEPTANCE_SENT=$(grep "Sent encrypted acceptance" /tmp/node-a.log 2>/dev/null | wc -l | tr -d ' ')
+ECIES_ACCEPTANCE_DECRYPTED=$(grep "Decrypted acceptance" /tmp/node-b.log 2>/dev/null | wc -l | tr -d ' ')
+
+TOTAL_ENCRYPTED=$((ECIES_ORDER_SENT + ECIES_PROPOSAL_SENT + ECIES_ACCEPTANCE_SENT))
+
+if [ "$TOTAL_ENCRYPTED" -gt "0" ]; then
+    echo -e "   ${GREEN}✓ ECIES Encryption Active:${NC} $TOTAL_ENCRYPTED encrypted messages sent"
+
+    if [ "$ECIES_ORDER_SENT" -gt "0" ]; then
+        echo -e "   ${GREEN}  • Order Details:${NC} $ECIES_ORDER_SENT encrypted, $ECIES_ORDER_DECRYPTED decrypted"
+        grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | head -1 | sed 's/^/      /'
+    fi
+
+    if [ "$ECIES_PROPOSAL_SENT" -gt "0" ]; then
+        echo -e "   ${GREEN}  • Proposals:${NC} $ECIES_PROPOSAL_SENT encrypted, $ECIES_PROPOSAL_DECRYPTED decrypted (frontrunning prevented)"
+        grep "Sent encrypted proposal" /tmp/node-b.log 2>/dev/null | head -1 | sed 's/^/      /'
+    fi
+
+    if [ "$ECIES_ACCEPTANCE_SENT" -gt "0" ]; then
+        echo -e "   ${GREEN}  • Acceptances:${NC} $ECIES_ACCEPTANCE_SENT encrypted, $ECIES_ACCEPTANCE_DECRYPTED decrypted (value leakage prevented)"
+        grep "Sent encrypted acceptance" /tmp/node-a.log 2>/dev/null | head -1 | sed 's/^/      /'
+    fi
 else
-    echo -e "   ${YELLOW}ℹ ECIES Encryption:${NC} Not used in this demo (available for sendEncryptedOrderDetails)"
-    echo -e "   ${CYAN}Note:${NC} Current demo uses unencrypted order_details for compatibility"
-    echo -e "   ${CYAN}Note:${NC} ECIES ready for encrypted_order_details message type"
+    echo -e "   ${YELLOW}ℹ ECIES Encryption:${NC} Not used in this demo"
+    echo -e "   ${CYAN}Note:${NC} Verify crypto initialization and peer key caching"
 fi
 echo ""
 
@@ -386,7 +410,13 @@ fi
 if [ "$PEER_KEYS_A" -gt "0" ] || [ "$PEER_KEYS_B" -gt "0" ]; then
     echo -e "   ${GREEN}✓ MitM Detection:${NC} Peer key caching active"
 fi
-echo -e "   ${GREEN}✓ Forward Secrecy:${NC} ECIES uses ephemeral keys (ready for use)"
+echo -e "   ${GREEN}✓ Forward Secrecy:${NC} ECIES uses ephemeral keys per message"
+if [ "$ECIES_PROPOSAL_SENT" -gt "0" ]; then
+    echo -e "   ${GREEN}✓ Frontrunning Prevention:${NC} Proposals encrypted to maker only"
+fi
+if [ "$ECIES_ACCEPTANCE_SENT" -gt "0" ]; then
+    echo -e "   ${GREEN}✓ Value Leakage Prevention:${NC} Acceptances encrypted to proposer only"
+fi
 echo ""
 
 sleep $STEP_DELAY
@@ -412,8 +442,10 @@ echo -e "${CYAN}Cryptography (Phase 2B):${NC}"
 echo -e "  ECDSA Signatures: All messages signed (P-256 curve)"
 echo -e "  Signature Verification: Automatic on message receipt"
 echo -e "  Peer Key Caching: MitM detection enabled"
-echo -e "  ECIES Encryption: Ready for order details (AES-256-GCM)"
+echo -e "  ECIES Encryption: Order details, proposals, acceptances (AES-256-GCM)"
 echo -e "  Forward Secrecy: Ephemeral keys per encrypted message"
+echo -e "  Frontrunning Prevention: Proposals encrypted to maker only"
+echo -e "  Value Leakage Prevention: Acceptances encrypted to proposer only"
 echo ""
 echo -e "${CYAN}Network Status:${NC}"
 echo -e "  Node A (Maker): http://localhost:$NODE_A_API_PORT"
@@ -424,8 +456,9 @@ echo -e "  Transport Encryption: Noise protocol (libp2p)"
 echo ""
 echo -e "${CYAN}Security Layers (All Active):${NC}"
 echo -e "  1. ✓ Transport Layer: Noise protocol encryption"
-echo -e "  2. ✓ Application Layer: ECIES order details encryption"
+echo -e "  2. ✓ Application Layer: ECIES encryption (orders, proposals, acceptances)"
 echo -e "  3. ✓ Identity Layer: ECDSA message signatures"
+echo -e "  4. ✓ Privacy Layer: Prevents frontrunning and value leakage"
 echo ""
 echo -e "${CYAN}Next Steps (Phase 3):${NC}"
 echo -e "  • Implement HTLC secret generation"
