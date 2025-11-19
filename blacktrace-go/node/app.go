@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -10,14 +11,19 @@ import (
 
 // BlackTraceApp is the main application
 type BlackTraceApp struct {
-	network *NetworkManager
-	authMgr *AuthManager
-	orders  map[OrderID]*OrderAnnouncement
+	network   *NetworkManager
+	authMgr   *AuthManager
+	cryptoMgr *CryptoManager // Initialized when first user logs in (one node = one user)
+	orders    map[OrderID]*OrderAnnouncement
 	ordersMux sync.RWMutex
 
 	// Proposal tracking - maps ProposalID to Proposal
 	proposals    map[ProposalID]*Proposal
 	proposalsMux sync.RWMutex
+
+	// Peer public key cache for signature verification
+	peerKeys    map[PeerID][]byte // Maps peer ID to their public key
+	peerKeysMux sync.RWMutex
 
 	// Channels for inter-component communication
 	appCommandCh chan AppCommand
@@ -55,13 +61,21 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 	app := &BlackTraceApp{
 		network:      nm,
 		authMgr:      authMgr,
+		cryptoMgr:    nil, // Initialized on first user login
 		orders:       make(map[OrderID]*OrderAnnouncement),
 		proposals:    make(map[ProposalID]*Proposal),
+		peerKeys:     make(map[PeerID][]byte),
 		appCommandCh: make(chan AppCommand, 100),
 		shutdownCh:   make(chan struct{}),
 	}
 
 	return app, nil
+}
+
+// SetCryptoManager sets the crypto manager (called after user login)
+func (app *BlackTraceApp) SetCryptoManager(cm *CryptoManager) {
+	app.cryptoMgr = cm
+	log.Printf("App: CryptoManager initialized for message signing and encryption")
 }
 
 // Run starts the application (non-blocking)
@@ -117,21 +131,41 @@ func (app *BlackTraceApp) handleNetworkEvent(event NetworkEvent) {
 
 // handleMessage processes a received message
 func (app *BlackTraceApp) handleMessage(from PeerID, data []byte) {
-	msg, err := UnmarshalMessage(data)
+	// Try to parse as signed message first
+	signedMsg, err := UnmarshalSignedMessage(data)
 	if err != nil {
-		log.Printf("Failed to unmarshal message: %v", err)
+		// Fallback to unsigned message (for backward compatibility during transition)
+		log.Printf("Warning: Received unsigned message from %s: %v", from, err)
+		msg, err := UnmarshalMessage(data)
+		if err != nil {
+			log.Printf("Failed to unmarshal message: %v", err)
+			return
+		}
+		app.handleMessagePayload(from, msg.Type, msg.Payload, nil)
 		return
 	}
 
-	switch msg.Type {
+	// Cache peer's public key
+	app.cachePeerPublicKey(from, signedMsg.SignerPublicKey)
+
+	log.Printf("App: Verified signed message from %s (type: %s, timestamp: %d)",
+		from, signedMsg.Type, signedMsg.Timestamp)
+
+	// Handle the verified message
+	app.handleMessagePayload(from, signedMsg.Type, signedMsg.Payload, signedMsg.SignerPublicKey)
+}
+
+// handleMessagePayload processes the actual message content
+func (app *BlackTraceApp) handleMessagePayload(from PeerID, msgType string, payload json.RawMessage, signerPubKey []byte) {
+	switch msgType {
 	case "order_announcement":
 		var announcement OrderAnnouncement
-		if err := json.Unmarshal(msg.Payload, &announcement); err != nil {
+		if err := json.Unmarshal(payload, &announcement); err != nil {
 			log.Printf("Failed to unmarshal order announcement: %v", err)
 			return
 		}
 
-		log.Printf("App: Received order announcement: %s", announcement.OrderID)
+		log.Printf("App: Received signed order announcement: %s from %s", announcement.OrderID, from)
 
 		app.ordersMux.Lock()
 		app.orders[announcement.OrderID] = &announcement
@@ -139,7 +173,7 @@ func (app *BlackTraceApp) handleMessage(from PeerID, data []byte) {
 
 	case "order_request":
 		var orderID OrderID
-		if err := json.Unmarshal(msg.Payload, &orderID); err != nil {
+		if err := json.Unmarshal(payload, &orderID); err != nil {
 			log.Printf("Failed to unmarshal order request: %v", err)
 			return
 		}
@@ -151,7 +185,7 @@ func (app *BlackTraceApp) handleMessage(from PeerID, data []byte) {
 
 	case "order_details":
 		var details OrderDetails
-		if err := json.Unmarshal(msg.Payload, &details); err != nil {
+		if err := json.Unmarshal(payload, &details); err != nil {
 			log.Printf("Failed to unmarshal order details: %v", err)
 			return
 		}
@@ -160,18 +194,79 @@ func (app *BlackTraceApp) handleMessage(from PeerID, data []byte) {
 
 	case "proposal":
 		var proposal Proposal
-		if err := json.Unmarshal(msg.Payload, &proposal); err != nil {
+		if err := json.Unmarshal(payload, &proposal); err != nil {
 			log.Printf("Failed to unmarshal proposal: %v", err)
 			return
 		}
 
-		log.Printf("App: Received proposal %s for %s: $%d from %s", proposal.ProposalID, proposal.OrderID, proposal.Price, proposal.ProposerID)
+		log.Printf("App: Received signed proposal: %s from %s", proposal.ProposalID, from)
 
 		// Store the proposal
 		app.proposalsMux.Lock()
 		app.proposals[proposal.ProposalID] = &proposal
 		app.proposalsMux.Unlock()
+
+	case "encrypted_order_details":
+		var encMsg EncryptedOrderDetailsMessage
+		if err := json.Unmarshal(payload, &encMsg); err != nil {
+			log.Printf("Failed to unmarshal encrypted order details: %v", err)
+			return
+		}
+
+		// Decrypt if we have crypto manager
+		if app.cryptoMgr == nil {
+			log.Printf("Cannot decrypt order details: CryptoManager not initialized")
+			return
+		}
+
+		// Deserialize ECIES message
+		eciesMsg, err := DeserializeECIESMessage(encMsg.EncryptedPayload)
+		if err != nil {
+			log.Printf("Failed to deserialize ECIES message: %v", err)
+			return
+		}
+
+		// Decrypt
+		decrypted, err := app.cryptoMgr.ECIESDecrypt(eciesMsg)
+		if err != nil {
+			log.Printf("Failed to decrypt order details: %v", err)
+			return
+		}
+
+		// Parse decrypted details
+		var details OrderDetails
+		if err := json.Unmarshal(decrypted, &details); err != nil {
+			log.Printf("Failed to unmarshal decrypted details: %v", err)
+			return
+		}
+
+		log.Printf("App: Decrypted order details for %s: Amount=%d, Price=%d-%d %s",
+			details.OrderID, details.Amount, details.MinPrice, details.MaxPrice, details.Stablecoin)
+
+		// Store decrypted details or display to user
+		// TODO: Add to a separate map for decrypted order details
 	}
+}
+
+// cachePeerPublicKey stores a peer's public key
+func (app *BlackTraceApp) cachePeerPublicKey(peerID PeerID, pubKey []byte) {
+	app.peerKeysMux.Lock()
+	defer app.peerKeysMux.Unlock()
+
+	// Check if we already have this peer's key
+	if existing, ok := app.peerKeys[peerID]; ok {
+		// Verify it matches (detect key changes/MitM attempts)
+		if !bytes.Equal(existing, pubKey) {
+			log.Printf("WARNING: Peer %s public key changed! Possible MitM attack!", peerID)
+			log.Printf("  Old key: %x", existing[:8])
+			log.Printf("  New key: %x", pubKey[:8])
+		}
+		return
+	}
+
+	// Cache new key
+	app.peerKeys[peerID] = pubKey
+	log.Printf("App: Cached public key for peer %s", peerID)
 }
 
 // handleAppCommand processes an application command
@@ -221,14 +316,13 @@ func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, 
 	app.orders[orderID] = announcement
 	app.ordersMux.Unlock()
 
-	// Broadcast to network
-	data, _ := MarshalMessage("order_announcement", announcement)
-	app.network.CommandChan() <- NetworkCommand{
-		Type: "broadcast",
-		Data: data,
+	// Broadcast SIGNED announcement
+	if err := app.broadcastSignedMessage("order_announcement", announcement); err != nil {
+		log.Printf("Failed to broadcast order announcement: %v", err)
+		return orderID
 	}
 
-	log.Printf("App: Created and broadcast order: %s", orderID)
+	log.Printf("App: Created and broadcast signed order: %s", orderID)
 
 	return orderID
 }
@@ -276,6 +370,135 @@ func (app *BlackTraceApp) sendOrderDetails(to PeerID, orderID OrderID) {
 	log.Printf("App: Sent order details to %s", to)
 }
 
+// sendEncryptedOrderDetails encrypts and sends order details to a specific peer
+func (app *BlackTraceApp) sendEncryptedOrderDetails(to PeerID, orderID OrderID) error {
+	// Get order details
+	app.ordersMux.RLock()
+	order, exists := app.orders[orderID]
+	app.ordersMux.RUnlock()
+
+	if !exists {
+		return fmt.Errorf("order not found: %s", orderID)
+	}
+
+	// Get recipient's public key
+	app.peerKeysMux.RLock()
+	recipientPubKeyBytes, ok := app.peerKeys[to]
+	app.peerKeysMux.RUnlock()
+
+	if !ok {
+		return fmt.Errorf("recipient public key not cached for peer: %s", to)
+	}
+
+	// Parse recipient's public key
+	recipientPubKey, err := ParsePublicKey(recipientPubKeyBytes)
+	if err != nil {
+		return fmt.Errorf("failed to parse recipient public key: %w", err)
+	}
+
+	// Create order details to encrypt
+	details := OrderDetails{
+		OrderID:    orderID,
+		OrderType:  order.OrderType,
+		Amount:     10000, // TODO: Get from stored details
+		MinPrice:   450,   // TODO: Get from stored details
+		MaxPrice:   470,   // TODO: Get from stored details
+		Stablecoin: order.Stablecoin,
+	}
+
+	// Marshal details to JSON
+	detailsJSON, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("failed to marshal details: %w", err)
+	}
+
+	// Encrypt with recipient's public key
+	encrypted, err := ECIESEncrypt(recipientPubKey, detailsJSON)
+	if err != nil {
+		return fmt.Errorf("failed to encrypt order details: %w", err)
+	}
+
+	// Serialize encrypted message
+	encryptedPayload := SerializeECIESMessage(encrypted)
+
+	// Create encrypted message
+	encryptedMsg := EncryptedOrderDetailsMessage{
+		OrderID:          orderID,
+		EncryptedPayload: encryptedPayload,
+	}
+
+	// Send as signed message
+	if err := app.sendSignedMessage(to, "encrypted_order_details", encryptedMsg); err != nil {
+		return fmt.Errorf("failed to send encrypted details: %w", err)
+	}
+
+	log.Printf("App: Sent encrypted order details for %s to %s (payload size: %d bytes)",
+		orderID, to, len(encryptedPayload))
+
+	return nil
+}
+
+// broadcastSignedMessage signs and broadcasts a message via gossipsub
+func (app *BlackTraceApp) broadcastSignedMessage(msgType string, payload interface{}) error {
+	// Check if crypto manager is initialized
+	if app.cryptoMgr == nil {
+		// Graceful degradation: send unsigned message
+		log.Printf("Warning: CryptoManager not initialized, sending unsigned message")
+		data, err := MarshalMessage(msgType, payload)
+		if err != nil {
+			return err
+		}
+		app.network.CommandChan() <- NetworkCommand{
+			Type: "broadcast",
+			Data: data,
+		}
+		return nil
+	}
+
+	// Sign the message
+	data, err := MarshalSignedMessage(msgType, payload, app.cryptoMgr)
+	if err != nil {
+		return fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	log.Printf("App: Broadcasting signed message (type: %s, size: %d bytes)", msgType, len(data))
+	app.network.CommandChan() <- NetworkCommand{
+		Type: "broadcast",
+		Data: data,
+	}
+	return nil
+}
+
+// sendSignedMessage signs and sends a message to a specific peer
+func (app *BlackTraceApp) sendSignedMessage(to PeerID, msgType string, payload interface{}) error {
+	if app.cryptoMgr == nil {
+		log.Printf("Warning: CryptoManager not initialized, sending unsigned message")
+		data, err := MarshalMessage(msgType, payload)
+		if err != nil {
+			return err
+		}
+		app.network.CommandChan() <- NetworkCommand{
+			Type: "send",
+			To:   to,
+			Data: data,
+		}
+		return nil
+	}
+
+	data, err := MarshalSignedMessage(msgType, payload, app.cryptoMgr)
+	if err != nil {
+		return fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	log.Printf("App: Sending signed message to %s (type: %s)", to, msgType)
+	app.network.CommandChan() <- NetworkCommand{
+		Type: "send",
+		To:   to,
+		Data: data,
+	}
+	return nil
+}
+
 // proposePrice proposes a price for an order
 func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
 	proposalID := NewProposalID(orderID)
@@ -295,11 +518,10 @@ func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
 	app.proposals[proposalID] = &proposal
 	app.proposalsMux.Unlock()
 
-	// Broadcast to network
-	data, _ := MarshalMessage("proposal", proposal)
-	app.network.CommandChan() <- NetworkCommand{
-		Type: "broadcast",
-		Data: data,
+	// Broadcast SIGNED proposal
+	if err := app.broadcastSignedMessage("proposal", proposal); err != nil {
+		log.Printf("Failed to broadcast proposal: %v", err)
+		return
 	}
 
 	log.Printf("App: Proposed price $%d for order %s (Proposal ID: %s)", price, orderID, proposalID)

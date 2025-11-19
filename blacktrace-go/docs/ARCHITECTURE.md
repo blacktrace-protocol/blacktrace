@@ -116,6 +116,81 @@ BlackTrace is a decentralized peer-to-peer protocol for secure, private OTC (ove
 
 ---
 
+### 2.5. Cryptography Layer (NEW - Phase 2B)
+
+**Purpose**: Message-level encryption and authentication for dark OTC coordination
+
+**Files**:
+- `node/crypto.go` - ECIES encryption and ECDSA signing
+- `node/crypto_test.go` - Comprehensive cryptographic test suite
+
+**Cryptographic Primitives**:
+
+#### ECDSA Message Signatures
+- **Curve**: P-256 (secp256r1) - same as identity keys
+- **Hash**: SHA-256
+- **Encoding**: ASN.1 DER format
+- **Purpose**: Authenticate all P2P messages, prevent tampering and impersonation
+
+**Implementation**:
+```go
+type SignedMessage struct {
+    Type            string          // Message type (e.g., "order_announcement")
+    Payload         json.RawMessage // Original message payload
+    Signature       []byte          // ECDSA signature over (type + payload)
+    SignerPublicKey []byte          // 65-byte uncompressed public key
+    Timestamp       int64           // Unix timestamp (replay protection)
+}
+```
+
+**All messages are signed**: Order announcements, proposals, order requests, encrypted order details
+
+#### ECIES Encryption (Elliptic Curve Integrated Encryption Scheme)
+- **Purpose**: End-to-end encryption for sensitive order details (amounts, price ranges)
+- **Components**:
+  1. **ECDH Key Agreement**: Ephemeral keypair + recipient's public key → shared secret
+  2. **Key Derivation**: HKDF-SHA256 with "blacktrace-ecies" context
+  3. **Encryption**: AES-256-GCM (authenticated encryption)
+  4. **Forward Secrecy**: New ephemeral key per message
+
+**Message Structure**:
+```go
+type ECIESEncryptedMessage struct {
+    EphemeralPublicKey []byte // 65 bytes - unique per message (forward secrecy)
+    Nonce              []byte // 12 bytes - GCM nonce
+    Ciphertext         []byte // Variable length
+    AuthTag            []byte // 16 bytes - GCM authentication tag
+}
+```
+
+**Wire Format**: Compact serialization for network transmission (~100 bytes overhead)
+
+#### Security Properties
+- **Confidentiality**: Only intended recipient can decrypt order details
+- **Authenticity**: All messages cryptographically signed by sender
+- **Integrity**: Tampered messages detected and rejected
+- **Forward Secrecy**: Past messages safe even if keys compromised
+- **Non-Repudiation**: Signed messages prove sender identity
+- **MitM Detection**: Public key caching detects key changes
+
+#### Peer Public Key Management
+- **Caching**: First signed message from peer → cache public key
+- **Verification**: Subsequent messages verified against cached key
+- **MitM Detection**: Key change triggers warning (possible attack)
+- **Usage**: Cached keys used for ECIES encryption to that peer
+
+**Workflow**:
+1. **Login** → Initialize CryptoManager with user's private key
+2. **Outbound**: Sign message with ECDSA → Broadcast/Send
+3. **Inbound**: Verify signature → Cache peer public key → Process message
+4. **Encrypted Details**: Look up peer's cached public key → ECIES encrypt → Sign → Send
+
+**Backward Compatibility**: Graceful degradation to unsigned messages if CryptoManager not initialized
+
+**Real-World Usage**: Same cryptography as Ethereum (Whisper), Bitcoin (Lightning), Signal Protocol
+
+---
+
 ### 3. Application Layer
 
 **Purpose**: Core business logic for OTC trading workflow
@@ -169,18 +244,19 @@ BlackTrace is a decentralized peer-to-peer protocol for secure, private OTC (ove
 
 **Message Types**:
 
-| Message Type | Transport | Purpose |
-|-------------|-----------|---------|
-| `order_announcement` | Gossipsub | Broadcast order metadata to all peers |
-| `order_request` | Gossipsub | Request full order details |
-| `order_details` | Direct Stream | Send encrypted order details (price range, etc.) |
-| `proposal` | Gossipsub | Broadcast price proposals |
-| `proposal_acceptance` | Direct Stream | Accept specific proposal (future) |
+| Message Type | Transport | Signed | Encrypted | Purpose |
+|-------------|-----------|--------|-----------|---------|
+| `order_announcement` | Gossipsub | ✅ | ❌ | Broadcast order metadata to all peers |
+| `order_request` | Gossipsub | ✅ | ❌ | Request full order details |
+| `order_details` | Direct Stream | ✅ | ❌ | Send order details (legacy, unencrypted) |
+| `encrypted_order_details` | Direct Stream | ✅ | ✅ (ECIES) | Send encrypted order details (Phase 2B) |
+| `proposal` | Gossipsub | ✅ | ❌ | Broadcast price proposals |
+| `proposal_acceptance` | Direct Stream | ✅ | ❌ | Accept specific proposal (future) |
 
 **Security Layers**:
-1. **Transport**: Noise protocol encryption (all P2P communication)
-2. **Application**: ECIES encryption for order details (future)
-3. **Identity**: ECDSA signatures on messages (future)
+1. **Transport**: Noise protocol encryption (all P2P communication) ✅
+2. **Application**: ECIES encryption for order details (Phase 2B) ✅
+3. **Identity**: ECDSA signatures on all messages (Phase 2B) ✅
 
 **Peer Discovery**:
 - **mDNS**: Automatic discovery on local networks
@@ -460,10 +536,12 @@ blacktrace-go/
 - [x] User authentication layer
 - [x] CLI-node integration
 
-### Phase 2: Application-Level Encryption (Current)
+### Phase 2: Application-Level Encryption (Complete)
 - [x] Integrate auth into order/propose flows (Phase 2A - Complete)
-- [ ] ECIES encryption for order details (Phase 2B)
-- [ ] Message signatures with ECDSA (Phase 2B)
+- [x] ECIES encryption for order details (Phase 2B - Complete)
+- [x] Message signatures with ECDSA (Phase 2B - Complete)
+- [x] Peer public key caching with MitM detection (Phase 2B)
+- [x] Backward compatibility with unsigned messages (Phase 2B)
 
 ### Phase 3: On-Chain Settlement
 - [ ] HTLC secret generation
@@ -501,5 +579,5 @@ blacktrace-go/
 ---
 
 **Last Updated**: 2025-11-19
-**Version**: 0.2.1 (Authentication Integration - Phase 2A)
-**Status**: Phase 1 Complete, Phase 2A Complete, Phase 2B In Progress
+**Version**: 0.3.0 (Message Encryption & Signatures - Phase 2B)
+**Status**: Phase 1 Complete, Phase 2 Complete (2A + 2B), Phase 3 Next

@@ -262,6 +262,13 @@ func (api *APIServer) handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Initialize CryptoManager with user's private key (ONE TIME per node)
+	if api.app.cryptoMgr == nil {
+		cryptoMgr := NewCryptoManager(session.PrivateKey)
+		api.app.SetCryptoManager(cryptoMgr)
+		log.Printf("Auth: Initialized CryptoManager for user: %s", session.Username)
+	}
+
 	api.sendJSON(w, AuthLoginResponse{
 		SessionID: sessionID,
 		Username:  req.Username,

@@ -62,6 +62,12 @@ type OrderDetails struct {
 	Stablecoin StablecoinType `json:"stablecoin"`
 }
 
+// EncryptedOrderDetailsMessage sent via direct stream to interested takers
+type EncryptedOrderDetailsMessage struct {
+	OrderID          OrderID `json:"order_id"`
+	EncryptedPayload []byte  `json:"encrypted_payload"` // ECIES encrypted OrderDetails
+}
+
 // Proposal during price negotiation
 type Proposal struct {
 	ProposalID ProposalID     `json:"proposal_id"`
@@ -77,6 +83,15 @@ type Proposal struct {
 type Message struct {
 	Type    string          `json:"type"`
 	Payload json.RawMessage `json:"payload"`
+}
+
+// SignedMessage wraps any message with ECDSA signature
+type SignedMessage struct {
+	Type            string          `json:"type"`
+	Payload         json.RawMessage `json:"payload"`
+	Signature       []byte          `json:"signature"`        // ECDSA signature over (type + payload)
+	SignerPublicKey []byte          `json:"signer_public_key"` // 65-byte uncompressed public key
+	Timestamp       int64           `json:"timestamp"`        // Unix timestamp
 }
 
 // NewOrderID generates a new order ID
@@ -109,4 +124,58 @@ func UnmarshalMessage(data []byte) (*Message, error) {
 	var msg Message
 	err := json.Unmarshal(data, &msg)
 	return &msg, err
+}
+
+// MarshalSignedMessage creates and signs a message
+func MarshalSignedMessage(msgType string, payload interface{}, cm *CryptoManager) ([]byte, error) {
+	// Marshal payload
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal payload: %w", err)
+	}
+
+	// Create message to sign (type + payload)
+	messageToSign := append([]byte(msgType), payloadBytes...)
+
+	// Sign the message
+	signature, err := cm.SignMessage(messageToSign)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign message: %w", err)
+	}
+
+	// Create signed message
+	signedMsg := SignedMessage{
+		Type:            msgType,
+		Payload:         payloadBytes,
+		Signature:       signature,
+		SignerPublicKey: cm.GetPublicKey(),
+		Timestamp:       time.Now().Unix(),
+	}
+
+	// Marshal signed message
+	return json.Marshal(signedMsg)
+}
+
+// UnmarshalSignedMessage parses and verifies a signed message
+func UnmarshalSignedMessage(data []byte) (*SignedMessage, error) {
+	var msg SignedMessage
+	if err := json.Unmarshal(data, &msg); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal signed message: %w", err)
+	}
+
+	// Parse signer's public key
+	signerPubKey, err := ParsePublicKey(msg.SignerPublicKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse signer public key: %w", err)
+	}
+
+	// Reconstruct message that was signed
+	messageToVerify := append([]byte(msg.Type), msg.Payload...)
+
+	// Verify signature
+	if err := VerifySignature(signerPubKey, messageToVerify, msg.Signature); err != nil {
+		return nil, fmt.Errorf("signature verification failed: %w", err)
+	}
+
+	return &msg, nil
 }
