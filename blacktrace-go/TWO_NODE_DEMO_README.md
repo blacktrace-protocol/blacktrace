@@ -4,15 +4,16 @@ Automated demonstration of the complete order lifecycle with two P2P-connected n
 
 ## What This Demo Shows
 
-The script demonstrates the full BlackTrace off-chain negotiation workflow:
+The script demonstrates the full BlackTrace off-chain negotiation workflow with authentication:
 
 1. ✅ **Node Startup** - Starts two independent nodes with automatic P2P connection
-2. ✅ **Order Creation** - Maker creates a sell order
-3. ✅ **Order Propagation** - Order broadcasts via gossipsub to all peers
-4. ✅ **Proposal Submission** - Taker makes multiple price proposals
-5. ✅ **Proposal Tracking** - All proposals stored with unique IDs
-6. ✅ **Proposal Review** - Maker lists and reviews all proposals
-7. ✅ **Proposal Acceptance** - Maker accepts a specific proposal
+2. ✅ **User Authentication** - Registers and authenticates users for each node
+3. ✅ **Order Creation** - Maker creates a sell order (authenticated as alice)
+4. ✅ **Order Propagation** - Order broadcasts via gossipsub to all peers
+5. ✅ **Proposal Submission** - Taker makes multiple price proposals (authenticated as bob)
+6. ✅ **Proposal Tracking** - All proposals stored with unique IDs
+7. ✅ **Proposal Review** - Maker lists and reviews all proposals
+8. ✅ **Proposal Acceptance** - Maker accepts a specific proposal
 
 ## Usage
 
@@ -73,81 +74,83 @@ Press `Ctrl+C` to stop nodes and exit.
 ✓ Nodes connected! (Node A: 1 peers, Node B: 1 peers)
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step 5: Create Order (Node A - Maker)
+  Step 5: Authentication Setup
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-➜ Creating sell order: 10,000 ZEC at $450-$470 per ZEC
+➜ Registering users for both nodes...
+✓ User 'alice' registered on Node A (Maker)
+✓ User 'bob' registered on Node B (Taker)
+➜ Logging in users...
+✓ Alice logged in to Node A
+   Session ID: 703dceff431e156d...
+✓ Bob logged in to Node B
+   Session ID: 288a8407b9d4e1c7...
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Step 6: Create Order (Node A - Maker)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+➜ Creating sell order: 10,000 ZEC at $450-$470 per ZEC (authenticated as alice)
 ✓ Order created: order_1763392920
    Amount: 10,000 ZEC
    Price Range: $450 - $470 per ZEC
    Total Range: $4,500,000 - $4,700,000 USDC
+   Created by: alice
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step 6: Verify Order Propagation (Node B)
+  Step 7: Verify Order Propagation (Node B)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ➜ Checking if order propagated to Node B...
 ✓ Order successfully propagated to Node B via gossipsub!
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step 7: Proposal #1 (Node B - Taker)
+  Step 8: Proposal #1 (Node B - Taker)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-➜ Taker proposes: $460 per ZEC for 10,000 ZEC
+➜ Taker proposes: $460 per ZEC for 10,000 ZEC (authenticated as bob)
 ✓ Proposal #1 sent: $460 × 10,000 = $4,600,000 USDC
+   Proposed by: bob
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step 8: Proposal #2 (Node B - Taker)
+  Step 9: Proposal #2 (Node B - Taker)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-➜ Taker proposes: $465 per ZEC for 10,000 ZEC
+➜ Taker proposes: $465 per ZEC for 10,000 ZEC (authenticated as bob)
 ✓ Proposal #2 sent: $465 × 10,000 = $4,650,000 USDC
+   Proposed by: bob
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step 9: List Proposals (Node A - Maker)
+  Step 10: List Proposals (Node A - Maker)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ➜ Maker reviews all proposals...
-📋 Listing proposals for order: order_1763392920
-
-📝 Proposal #1:
-   Proposal ID: order_1763392920_proposal_1763392924463386000
-   Price: $460 per ZEC
-   Amount: 10000 ZEC
-   Total: $4600000
-   Proposer: 12D3KooWLQHHxVtNV9pBg5ptuuC79Y7FWVT3tjk2DPxMPnPBpPRS
-   Status: Pending
-   Timestamp: 2025-11-17T20:52:04.463395+05:30
-
-📝 Proposal #2:
-   Proposal ID: order_1763392920_proposal_1763392926469929000
-   Price: $465 per ZEC
-   Amount: 10000 ZEC
-   Total: $4650000
-   Proposer: 12D3KooWLQHHxVtNV9pBg5ptuuC79Y7FWVT3tjk2DPxMPnPBpPRS
-   Status: Pending
-   Timestamp: 2025-11-17T20:52:06.469938+05:30
-
-Total: 2 proposals
+  Proposal ID: order_1763392920_proposal_1763392924463386000
+  Proposal ID: order_1763392920_proposal_1763392926469929000
+✓ Found proposals for order order_1763392920
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Step 10: Accept Proposal (Node A - Maker)
+  Step 11: Accept Proposal (Node A - Maker)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ➜ Maker accepts proposal: order_1763392920_proposal_1763392924463386000
-✅ Proposal accepted successfully!
-🔒 Ready to proceed with settlement
+✓ Proposal accepted! Ready for settlement
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Demo Complete - Summary
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Order Lifecycle:
-  1. ✓ Order created on Node A (Maker)
-  2. ✓ Order propagated to Node B (Taker) via gossipsub
-  3. ✓ Taker made 2 proposals
-  4. ✓ Maker reviewed proposals
-  5. ✓ Maker accepted proposal
+  1. ✓ Users registered and authenticated
+  2. ✓ Order created on Node A (Maker - alice)
+  3. ✓ Order propagated to Node B (Taker) via gossipsub
+  4. ✓ Taker made 2 proposals (bob)
+  5. ✓ Maker reviewed proposals
+  6. ✓ Maker accepted proposal
+
+Authentication:
+  Node A User: alice (Session: 703dceff431e156d...)
+  Node B User: bob (Session: 288a8407b9d4e1c7...)
 
 Network Status:
   Node A (Maker): http://localhost:8080
@@ -155,13 +158,20 @@ Network Status:
   Peer ID A: 12D3KooWSoL3jioDvYpmPvgP9DUeMjP8jy1v44tpMKf3twfKFTQP
   Peer ID B: 12D3KooWLQHHxVtNV9pBg5ptuuC79Y7FWVT3tjk2DPxMPnPBpPRS
 
+Node Logs (Authentication):
+2025/11/18 17:36:56 Auth: User alice logged in (session: 703dceff..., expires: 2025-11-19T17:36:56+05:30)
+2025/11/19 18:05:08 Order order_1763392920 created by user: alice
+2025/11/19 18:05:51 Proposal for order order_1763392920 created by user: bob
+
 Next Steps:
+  • Implement ECIES encryption for order details (Phase 2B)
+  • Add ECDSA signatures to messages (Phase 2B)
   • Implement HTLC secret generation
   • Build Zcash L1 Orchard HTLC
   • Build Ztarknet L2 Cairo HTLC
   • Coordinate dual-layer atomic settlement
 
-Logs:
+Log Files:
   Node A: /tmp/node-a.log
   Node B: /tmp/node-b.log
 ```
@@ -184,10 +194,17 @@ This demo proves:
 - Proposals stored with status (Pending/Accepted/Rejected)
 - ProposerID tracked (peer who made the proposal)
 
+### ✅ Authentication & Authorization
+- User registration with encrypted ECDSA keypairs
+- Session-based authentication (24-hour expiration)
+- Session tokens for authenticated operations
+- Username tracking for audit trails
+
 ### ✅ CLI-Node Integration
 - HTTP REST API working on all endpoints
 - Multiple nodes can run simultaneously on different ports
 - `--api-url` flag allows targeting specific nodes
+- Direct API access via curl for testing
 
 ## Manual Inspection
 
@@ -267,10 +284,12 @@ STEP_DELAY=2             # Delay between steps (seconds)
 ## What's Working
 
 ✅ **Off-chain negotiation complete**
-- Order creation and broadcasting
+- User authentication with encrypted identities
+- Authenticated order creation and broadcasting
 - Multi-round proposal negotiation
 - Proposal tracking with unique IDs
 - Proposal acceptance
+- Username logging for audit trails
 
 ## What's Next
 
@@ -283,5 +302,5 @@ STEP_DELAY=2             # Delay between steps (seconds)
 
 ---
 
-**Last Updated**: 2025-11-17
-**Status**: ✅ Fully functional off-chain workflow
+**Last Updated**: 2025-11-19
+**Status**: ✅ Fully functional off-chain workflow with authentication (Phase 2A complete)

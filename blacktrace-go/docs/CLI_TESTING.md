@@ -115,6 +115,195 @@ Logged out successfully
 
 ---
 
+## Testing Authentication via HTTP API
+
+For automated testing or integration with other tools, you can interact with the authentication endpoints directly via HTTP.
+
+### Start a Node for Testing
+
+```bash
+./blacktrace node --port 9000 --api-port 8080 > /tmp/test-node.log 2>&1 &
+```
+
+### Register User via API
+
+```bash
+curl -X POST http://localhost:8080/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"test123"}'
+```
+
+**Expected Response:**
+```json
+{"username":"alice","status":"registered"}
+```
+
+**Error Cases:**
+```bash
+# User already exists
+{"error":"user alice already exists"}
+
+# Missing fields
+{"error":"Username is required"}
+{"error":"Password is required"}
+```
+
+### Login via API
+
+```bash
+curl -s -X POST http://localhost:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"test123"}' | jq
+```
+
+**Expected Response:**
+```json
+{
+  "session_id": "288a8407b9d4e1c7d07787318ffb0f841750b6c2b02078c117e8d5ae8823d802",
+  "username": "alice",
+  "expires_at": "2025-11-19T17:36:56+05:30"
+}
+```
+
+**Error Cases:**
+```json
+{"error":"user not found"}
+{"error":"invalid password"}
+```
+
+### Whoami via API
+
+```bash
+SESSION_ID="your_session_id_here"
+
+curl -s -X POST http://localhost:8080/auth/whoami \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\"}" | jq
+```
+
+**Expected Response:**
+```json
+{
+  "username": "alice",
+  "session_id": "288a8407b9d4e1c7d07787318ffb0f841750b6c2b02078c117e8d5ae8823d802",
+  "logged_in_at": "2025-11-18T17:36:56+05:30",
+  "expires_at": "2025-11-19T17:36:56+05:30"
+}
+```
+
+### Logout via API
+
+```bash
+curl -X POST http://localhost:8080/auth/logout \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\"}"
+```
+
+**Expected Response:**
+```json
+{"status":"logged out"}
+```
+
+### Create Order with Authentication
+
+```bash
+# Must include session_id in request
+curl -X POST http://localhost:8080/orders/create \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\",\"amount\":1000,\"stablecoin\":\"USDC\",\"min_price\":450,\"max_price\":470}"
+```
+
+**Expected Response:**
+```json
+{"order_id":"order_1763555708"}
+```
+
+**Without Auth:**
+```json
+{"error":"Authentication required: no active session found"}
+```
+
+### Submit Proposal with Authentication
+
+```bash
+ORDER_ID="order_1763555708"
+
+curl -X POST http://localhost:8080/negotiate/propose \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\",\"order_id\":\"$ORDER_ID\",\"price\":460,\"amount\":1000}"
+```
+
+**Expected Response:**
+```json
+{"status":"proposal sent"}
+```
+
+**Without Auth:**
+```json
+{"error":"Authentication required: invalid session"}
+```
+
+### Complete API Testing Workflow
+
+```bash
+# 1. Start node
+./blacktrace node --port 9000 --api-port 8080 > /tmp/test-node.log 2>&1 &
+sleep 3
+
+# 2. Register user
+curl -s -X POST http://localhost:8080/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"test123"}'
+
+# 3. Login and capture session ID
+SESSION_ID=$(curl -s -X POST http://localhost:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"alice","password":"test123"}' | jq -r '.session_id')
+
+echo "Session ID: $SESSION_ID"
+
+# 4. Verify auth works
+curl -s -X POST http://localhost:8080/auth/whoami \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\"}" | jq
+
+# 5. Create order (authenticated)
+ORDER_RESPONSE=$(curl -s -X POST http://localhost:8080/orders/create \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\",\"amount\":1000,\"stablecoin\":\"USDC\",\"min_price\":450,\"max_price\":470}")
+
+ORDER_ID=$(echo $ORDER_RESPONSE | jq -r '.order_id')
+echo "Order created: $ORDER_ID"
+
+# 6. Submit proposal (authenticated)
+curl -s -X POST http://localhost:8080/negotiate/propose \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\",\"order_id\":\"$ORDER_ID\",\"price\":460,\"amount\":1000}" | jq
+
+# 7. Check node logs
+tail -20 /tmp/test-node.log | grep -E "created by user|Auth:"
+
+# Expected: "Order order_XXX created by user: alice"
+# Expected: "Proposal for order order_XXX created by user: alice"
+
+# 8. Logout
+curl -s -X POST http://localhost:8080/auth/logout \
+  -H 'Content-Type: application/json' \
+  -d "{\"session_id\":\"$SESSION_ID\"}" | jq
+
+# 9. Cleanup
+./blacktrace node kill-all
+```
+
+**Node Log Output:**
+```
+2025/11/18 17:36:56 Auth: User alice logged in (session: 288a8407..., expires: 2025-11-19T17:36:56+05:30)
+2025/11/19 18:05:08 Order order_1763555708 created by user: alice
+2025/11/19 18:05:51 Proposal for order order_1763555708 created by user: alice
+```
+
+---
+
 ## Node Management Commands
 
 Before running tests, familiarize yourself with these node management commands:

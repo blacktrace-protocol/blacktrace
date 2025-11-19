@@ -461,9 +461,9 @@ blacktrace-go/
 - [x] CLI-node integration
 
 ### Phase 2: Application-Level Encryption (Current)
-- [ ] ECIES encryption for order details
-- [ ] Message signatures with ECDSA
-- [ ] Integrate auth into order/propose flows
+- [x] Integrate auth into order/propose flows (Phase 2A - Complete)
+- [ ] ECIES encryption for order details (Phase 2B)
+- [ ] Message signatures with ECDSA (Phase 2B)
 
 ### Phase 3: On-Chain Settlement
 - [ ] HTLC secret generation
@@ -500,6 +500,6 @@ blacktrace-go/
 
 ---
 
-**Last Updated**: 2025-11-17
-**Version**: 0.2.0 (Authentication Layer)
-**Status**: Phase 1 Complete, Phase 2 In Progress
+**Last Updated**: 2025-11-19
+**Version**: 0.2.1 (Authentication Integration - Phase 2A)
+**Status**: Phase 1 Complete, Phase 2A Complete, Phase 2B In Progress
