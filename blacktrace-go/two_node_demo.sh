@@ -345,9 +345,9 @@ echo ""
 
 # ECIES encryption status
 echo -e "${YELLOW}6. ECIES Encryption Status${NC}"
-ECIES_SENT=$(grep -c "Sent encrypted order details" /tmp/node-a.log 2>/dev/null || echo "0")
-ECIES_DECRYPTED=$(grep -c "Decrypted order details" /tmp/node-b.log 2>/dev/null || echo "0")
-if [ "$ECIES_SENT" -gt 0 ]; then
+ECIES_SENT=$(grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | wc -l)
+ECIES_DECRYPTED=$(grep "Decrypted order details" /tmp/node-b.log 2>/dev/null | wc -l)
+if [ "$ECIES_SENT" -gt "0" ]; then
     echo -e "   ${GREEN}✓ ECIES Encryption Used:${NC} $ECIES_SENT encrypted messages sent"
     grep "Sent encrypted order details" /tmp/node-a.log 2>/dev/null | head -3 | sed 's/^/      /'
     echo ""
@@ -362,12 +362,12 @@ echo ""
 
 # Security summary
 echo -e "${YELLOW}7. Security Properties Verified${NC}"
-if [ "$SIGNED_BROADCASTS_A" -gt 0 ] && [ "$VERIFIED_MSGS_B" -gt 0 ]; then
+if [ "$SIGNED_BROADCASTS_A" -gt "0" ] && [ "$VERIFIED_MSGS_B" -gt "0" ]; then
     echo -e "   ${GREEN}✓ Authenticity:${NC} All messages signed and verified"
     echo -e "   ${GREEN}✓ Integrity:${NC} Signatures prevent tampering"
     echo -e "   ${GREEN}✓ Non-repudiation:${NC} Sender identity cryptographically proven"
 fi
-if [ "$PEER_KEYS_A" -gt 0 ] || [ "$PEER_KEYS_B" -gt 0 ]; then
+if [ "$PEER_KEYS_A" -gt "0" ] || [ "$PEER_KEYS_B" -gt "0" ]; then
     echo -e "   ${GREEN}✓ MitM Detection:${NC} Peer key caching active"
 fi
 echo -e "   ${GREEN}✓ Forward Secrecy:${NC} ECIES uses ephemeral keys (ready for use)"

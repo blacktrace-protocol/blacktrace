@@ -180,8 +180,13 @@ func (app *BlackTraceApp) handleMessagePayload(from PeerID, msgType string, payl
 
 		log.Printf("App: Received order request: %s from %s", orderID, from)
 
-		// Send order details back
-		app.sendOrderDetails(from, orderID)
+		// Send ENCRYPTED order details back (Phase 2B - ECIES encryption)
+		if err := app.sendEncryptedOrderDetails(from, orderID); err != nil {
+			log.Printf("Failed to send encrypted order details: %v", err)
+			// Fallback to unencrypted if encryption fails
+			log.Printf("Falling back to unencrypted order details")
+			app.sendOrderDetails(from, orderID)
+		}
 
 	case "order_details":
 		var details OrderDetails
