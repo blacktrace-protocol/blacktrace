@@ -11,11 +11,12 @@ import (
 
 // BlackTraceApp is the main application
 type BlackTraceApp struct {
-	network   *NetworkManager
-	authMgr   *AuthManager
-	cryptoMgr *CryptoManager // Initialized when first user logs in (one node = one user)
-	orders    map[OrderID]*OrderAnnouncement
-	ordersMux sync.RWMutex
+	network      *NetworkManager
+	authMgr      *AuthManager
+	cryptoMgr    *CryptoManager // Initialized when first user logs in (one node = one user)
+	settlementMgr *SettlementManager // Phase 3: NATS-based settlement coordination
+	orders       map[OrderID]*OrderAnnouncement
+	ordersMux    sync.RWMutex
 
 	// Proposal tracking - maps ProposalID to Proposal
 	proposals    map[ProposalID]*Proposal
@@ -58,15 +59,24 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 	// Create auth manager with 24-hour session expiration
 	authMgr := NewAuthManager(24 * time.Hour)
 
+	// Initialize settlement manager (Phase 3: NATS integration)
+	settlementMgr, err := NewSettlementManager()
+	if err != nil {
+		log.Printf("Warning: Failed to initialize settlement manager: %v", err)
+		// Continue without settlement service
+		settlementMgr = &SettlementManager{enabled: false}
+	}
+
 	app := &BlackTraceApp{
-		network:      nm,
-		authMgr:      authMgr,
-		cryptoMgr:    nil, // Initialized on first user login
-		orders:       make(map[OrderID]*OrderAnnouncement),
-		proposals:    make(map[ProposalID]*Proposal),
-		peerKeys:     make(map[PeerID][]byte),
-		appCommandCh: make(chan AppCommand, 100),
-		shutdownCh:   make(chan struct{}),
+		network:       nm,
+		authMgr:       authMgr,
+		cryptoMgr:     nil, // Initialized on first user login
+		settlementMgr: settlementMgr,
+		orders:        make(map[OrderID]*OrderAnnouncement),
+		proposals:     make(map[ProposalID]*Proposal),
+		peerKeys:      make(map[PeerID][]byte),
+		appCommandCh:  make(chan AppCommand, 100),
+		shutdownCh:    make(chan struct{}),
 	}
 
 	return app, nil
@@ -828,9 +838,39 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 		}
 	}
 
-	// TODO: In a real implementation, this would also:
-	// 1. Initiate HTLC setup
-	// 2. Move to settlement phase
+	// Phase 3: Publish settlement request to NATS for HTLC creation
+	if app.settlementMgr.IsEnabled() {
+		// Get order details
+		app.ordersMux.RLock()
+		order, exists := app.orders[proposal.OrderID]
+		app.ordersMux.RUnlock()
+
+		if !exists {
+			log.Printf("Warning: Order %s not found, cannot initiate settlement", proposal.OrderID)
+			return nil
+		}
+
+		// Create settlement request
+		settlementReq := SettlementRequest{
+			ProposalID:      string(proposalID),
+			OrderID:         string(proposal.OrderID),
+			MakerID:         string(app.GetPeerID()),
+			TakerID:         string(proposal.ProposerID),
+			Amount:          proposal.Amount,
+			Price:           proposal.Price,
+			Stablecoin:      string(order.Stablecoin),
+			SettlementChain: "ztarknet", // Default for now, will be from proposal in future
+			Timestamp:       time.Now(),
+		}
+
+		// Publish to NATS for Rust settlement service
+		if err := app.settlementMgr.PublishSettlementRequest(settlementReq); err != nil {
+			log.Printf("Warning: Failed to publish settlement request: %v", err)
+			// Continue anyway - this is not critical for acceptance
+		} else {
+			log.Printf("Settlement: Request published to NATS (will be picked up by Rust service)")
+		}
+	}
 
 	return nil
 }
@@ -859,6 +899,8 @@ func (app *BlackTraceApp) Shutdown() {
 	app.network.CommandChan() <- NetworkCommand{
 		Type: "shutdown",
 	}
+	// Close NATS connection
+	app.settlementMgr.Close()
 }
 
 // GetAuthManager returns the authentication manager

@@ -106,7 +106,8 @@ func NewNetworkManager(port int) (*NetworkManager, error) {
 	ctx := context.Background()
 
 	// Create multiaddress for listening
-	listenAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/127.0.0.1/tcp/%d", port))
+	// Use 0.0.0.0 to listen on all interfaces (required for Docker networking)
+	listenAddr, err := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/0.0.0.0/tcp/%d", port))
 	if err != nil {
 		return nil, err
 	}

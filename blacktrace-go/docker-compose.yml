@@ -1,6 +1,23 @@
 version: '3.8'
 
 services:
+  # NATS message queue for settlement coordination
+  nats:
+    image: nats:2.10-alpine
+    container_name: blacktrace-nats
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+    networks:
+      - blacktrace-net
+    command: ["-js", "-m", "8222"]
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8222/healthz"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+      start_period: 5s
+
   # Bootstrap node (Maker - Alice)
   node-maker:
     build: .
@@ -10,6 +27,7 @@ services:
       - P2P_PORT=19000
       - API_PORT=8080
       - NODE_NAME=alice
+      - NATS_URL=nats://nats:4222
     ports:
       - "8080:8080"
       - "19000:19000"
@@ -17,6 +35,9 @@ services:
       - blacktrace-net
     volumes:
       - maker-data:/root/.blacktrace
+    depends_on:
+      nats:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 5s
@@ -34,6 +55,7 @@ services:
       - API_PORT=8081
       - NODE_NAME=bob
       - BOOTSTRAP_PEER=/ip4/node-maker/tcp/19000
+      - NATS_URL=nats://nats:4222
     ports:
       - "8081:8081"
       - "19001:19001"
@@ -42,10 +64,11 @@ services:
     volumes:
       - taker-data:/root/.blacktrace
     depends_on:
+      nats:
+        condition: service_healthy
       node-maker:
         condition: service_healthy
-    # Start after 5 second delay to ensure maker is ready
-    command: /bin/sh -c "sleep 5 && /app/blacktrace node --port 19001 --api-port 8081"
+    command: ["node", "--port", "19001", "--api-port", "8081"]
 
   # Automated test runner
   test-runner:
@@ -65,6 +88,23 @@ services:
         condition: service_started
     # Wait for both nodes to be ready, then run tests
     command: /bin/sh -c "sleep 15 && /tests/run-e2e-tests.sh"
+
+  # Rust settlement service (temporarily disabled due to Docker build issue)
+  # Can be run locally with: cd settlement-service && cargo run
+  # settlement-service:
+  #   build:
+  #     context: ./settlement-service
+  #     dockerfile: Dockerfile
+  #   container_name: blacktrace-settlement
+  #   environment:
+  #     - NATS_URL=nats://nats:4222
+  #     - RUST_LOG=info
+  #   networks:
+  #     - blacktrace-net
+  #   depends_on:
+  #     nats:
+  #       condition: service_healthy
+  #   restart: unless-stopped
 
 networks:
   blacktrace-net:
