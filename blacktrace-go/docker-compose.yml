@@ -1,0 +1,75 @@
+version: '3.8'
+
+services:
+  # Bootstrap node (Maker - Alice)
+  node-maker:
+    build: .
+    container_name: blacktrace-maker
+    environment:
+      - NODE_TYPE=bootstrap
+      - P2P_PORT=19000
+      - API_PORT=8080
+      - NODE_NAME=alice
+    ports:
+      - "8080:8080"
+      - "19000:19000"
+    networks:
+      - blacktrace-net
+    volumes:
+      - maker-data:/root/.blacktrace
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # Taker node (Bob) - starts after maker
+  node-taker:
+    build: .
+    container_name: blacktrace-taker
+    environment:
+      - NODE_TYPE=regular
+      - P2P_PORT=19001
+      - API_PORT=8081
+      - NODE_NAME=bob
+      - BOOTSTRAP_PEER=/ip4/node-maker/tcp/19000
+    ports:
+      - "8081:8081"
+      - "19001:19001"
+    networks:
+      - blacktrace-net
+    volumes:
+      - taker-data:/root/.blacktrace
+    depends_on:
+      node-maker:
+        condition: service_healthy
+    # Start after 5 second delay to ensure maker is ready
+    command: /bin/sh -c "sleep 5 && /app/blacktrace node --port 19001 --api-port 8081"
+
+  # Automated test runner
+  test-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.test
+    container_name: blacktrace-tests
+    environment:
+      - MAKER_API=http://node-maker:8080
+      - TAKER_API=http://node-taker:8081
+    networks:
+      - blacktrace-net
+    depends_on:
+      node-maker:
+        condition: service_healthy
+      node-taker:
+        condition: service_started
+    # Wait for both nodes to be ready, then run tests
+    command: /bin/sh -c "sleep 15 && /tests/run-e2e-tests.sh"
+
+networks:
+  blacktrace-net:
+    driver: bridge
+
+volumes:
+  maker-data:
+  taker-data:
