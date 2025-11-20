@@ -25,6 +25,25 @@ func NewAPIServer(app *BlackTraceApp, port int) *APIServer {
 	}
 }
 
+// corsMiddleware adds CORS headers to allow frontend requests
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Allow requests from frontend
+		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Max-Age", "3600")
+
+		// Handle preflight requests
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
 // Start starts the HTTP API server (non-blocking)
 func (api *APIServer) Start() error {
 	mux := http.NewServeMux()
@@ -49,9 +68,12 @@ func (api *APIServer) Start() error {
 	mux.HandleFunc("/status", api.handleStatus)
 	mux.HandleFunc("/health", api.handleHealth)
 
+	// Wrap with CORS middleware
+	handler := corsMiddleware(mux)
+
 	api.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", api.port),
-		Handler: mux,
+		Handler: handler,
 	}
 
 	api.shutdownWg.Add(1)
