@@ -31,16 +31,18 @@ export function MyProposals({ onEditProposal }: MyProposalsProps) {
         try {
           const response = await bobAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
-            // Filter out proposals without IDs and sort by timestamp (latest first)
+            // Filter out proposals without IDs, accepted proposals, and sort by timestamp (latest first)
             const validProposals = response.proposals
-              .filter(p => p.id && p.id.trim() !== '')
+              .filter(p => p.id && p.id.trim() !== '' && p.status !== 'accepted')
               .sort((a, b) => {
                 const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
                 const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
                 return timeB - timeA;
               });
+
+            // Show only the most recent proposal per order (to avoid showing old rejected proposals after resubmit)
             if (validProposals.length > 0) {
-              proposalsMap[order.id] = validProposals;
+              proposalsMap[order.id] = [validProposals[0]]; // Take only the first (most recent) proposal
             }
           }
         } catch (err) {

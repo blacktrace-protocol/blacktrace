@@ -357,7 +357,44 @@ func (app *BlackTraceApp) handleMessagePayload(from PeerID, msgType string, payl
 		log.Printf("App: Decrypted acceptance for proposal %s: Status=%s (value leakage prevented)",
 			acceptance["proposal_id"], acceptance["status"])
 
-		// TODO: Update proposal status and move to settlement phase
+		// Update proposal status to accepted
+		proposalIDStr, ok := acceptance["proposal_id"].(string)
+		if !ok {
+			log.Printf("Invalid proposal_id in acceptance message")
+			return
+		}
+		proposalID := ProposalID(proposalIDStr)
+
+		app.proposalsMux.Lock()
+		if proposal, exists := app.proposals[proposalID]; exists {
+			proposal.Status = ProposalStatusAccepted
+			log.Printf("App: Updated proposal %s status to Accepted", proposalID)
+		}
+		app.proposalsMux.Unlock()
+
+	case "rejection":
+		var rejection map[string]interface{}
+		if err := json.Unmarshal(payload, &rejection); err != nil {
+			log.Printf("Failed to unmarshal rejection: %v", err)
+			return
+		}
+
+		proposalIDStr, ok := rejection["proposal_id"].(string)
+		if !ok {
+			log.Printf("Invalid proposal_id in rejection message")
+			return
+		}
+		proposalID := ProposalID(proposalIDStr)
+
+		log.Printf("App: Received rejection for proposal %s", proposalID)
+
+		// Update proposal status to rejected
+		app.proposalsMux.Lock()
+		if proposal, exists := app.proposals[proposalID]; exists {
+			proposal.Status = ProposalStatusRejected
+			log.Printf("App: Updated proposal %s status to Rejected", proposalID)
+		}
+		app.proposalsMux.Unlock()
 	}
 }
 

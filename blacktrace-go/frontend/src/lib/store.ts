@@ -21,6 +21,7 @@ interface AppState {
 
   // Actions
   setUser: (side: NodeSide, user: User) => void;
+  logout: (side: NodeSide) => void;
   setOrders: (side: NodeSide, orders: Order[]) => void;
   setProposals: (side: NodeSide, proposals: Proposal[]) => void;
   addOrder: (side: NodeSide, order: Order) => void;
@@ -50,6 +51,16 @@ export const useStore = create<AppState>((set) => ({
       [side]: {
         ...state[side],
         user,
+      },
+    })),
+
+  logout: (side) =>
+    set((state) => ({
+      [side]: {
+        ...state[side],
+        user: null,
+        orders: [],
+        proposals: [],
       },
     })),
 

@@ -6,14 +6,19 @@ import { ProposalsList } from './components/ProposalsList';
 import { MyOrders } from './components/MyOrders';
 import { OrdersList } from './components/OrdersList';
 import { CreateProposalForm } from './components/CreateProposalForm';
-import { Lock, Shield } from 'lucide-react';
+import { MyProposals } from './components/MyProposals';
+import { SettlementQueue } from './components/SettlementQueue';
+import { Lock, Shield, LogOut } from 'lucide-react';
 import { useState } from 'react';
-import type { Order } from './lib/types';
+import type { Order, Proposal } from './lib/types';
+import { Button } from './components/ui/button';
 
 function App() {
   const aliceUser = useStore((state) => state.alice.user);
   const bobUser = useStore((state) => state.bob.user);
+  const logout = useStore((state) => state.logout);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
 
   return (
     <div className="min-h-screen bg-background">
@@ -49,9 +54,19 @@ function App() {
                 <p className="text-sm text-muted-foreground">DAO Treasury Manager</p>
               </div>
               {aliceUser && (
-                <div className="text-sm">
-                  <div className="text-muted-foreground">Connected as</div>
-                  <div className="font-medium">{aliceUser.username}</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-right">
+                    <div className="text-muted-foreground">Connected as</div>
+                    <div className="font-medium">{aliceUser.username}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => logout('alice')}
+                    className="h-8"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
                 </div>
               )}
             </div>
@@ -78,9 +93,19 @@ function App() {
                 <p className="text-sm text-muted-foreground">Privacy Whale</p>
               </div>
               {bobUser && (
-                <div className="text-sm">
-                  <div className="text-muted-foreground">Connected as</div>
-                  <div className="font-medium">{bobUser.username}</div>
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-right">
+                    <div className="text-muted-foreground">Connected as</div>
+                    <div className="font-medium">{bobUser.username}</div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => logout('bob')}
+                    className="h-8"
+                  >
+                    <LogOut className="h-4 w-4" />
+                  </Button>
                 </div>
               )}
             </div>
@@ -95,54 +120,33 @@ function App() {
                 {selectedOrder ? (
                   <CreateProposalForm
                     order={selectedOrder}
-                    onClose={() => setSelectedOrder(null)}
-                    onSuccess={() => setSelectedOrder(null)}
+                    initialProposal={editingProposal || undefined}
+                    onClose={() => {
+                      setSelectedOrder(null);
+                      setEditingProposal(null);
+                    }}
+                    onSuccess={() => {
+                      setSelectedOrder(null);
+                      setEditingProposal(null);
+                    }}
                   />
                 ) : (
                   <OrdersList onSelectOrder={setSelectedOrder} />
                 )}
+                <MyProposals onEditProposal={(order, proposal) => {
+                  // When editing a rejected proposal, set both order and proposal
+                  // This will open CreateProposalForm with pre-filled values
+                  setSelectedOrder(order);
+                  setEditingProposal(proposal);
+                }} />
               </div>
             )}
           </div>
         </div>
 
-        {/* Settlement Status Panel */}
-        <div className="mt-6 rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
-              <span className="text-sm font-medium">Settlement Pipeline</span>
-            </div>
-            <span className="text-xs text-muted-foreground">
-              NATS Connected • Rust Service Ready
-            </span>
-          </div>
-
-          <div className="grid grid-cols-4 gap-3 mt-4">
-            <div className="border border-primary/50 rounded-md p-3 bg-primary/10">
-              <div className="text-xs text-muted-foreground mb-1">Privacy Layer</div>
-              <div className="font-semibold text-sm">Zcash</div>
-              <div className="text-xs text-green-400 mt-1">● Active</div>
-            </div>
-
-            <div className="border border-primary/50 rounded-md p-3 bg-primary/10">
-              <div className="text-xs text-muted-foreground mb-1">Stablecoin</div>
-              <div className="font-semibold text-sm">zTarknet</div>
-              <div className="text-xs text-green-400 mt-1">● Active</div>
-            </div>
-
-            <div className="border border-border rounded-md p-3 bg-muted/20 opacity-50">
-              <div className="text-xs text-muted-foreground mb-1">Stablecoin</div>
-              <div className="font-semibold text-sm">Solana</div>
-              <div className="text-xs text-muted-foreground mt-1">Coming Soon</div>
-            </div>
-
-            <div className="border border-border rounded-md p-3 bg-muted/20 opacity-50">
-              <div className="text-xs text-muted-foreground mb-1">Intents</div>
-              <div className="font-semibold text-sm">NEAR</div>
-              <div className="text-xs text-muted-foreground mt-1">Coming Soon</div>
-            </div>
-          </div>
+        {/* Settlement Queue Panel */}
+        <div className="mt-6">
+          <SettlementQueue />
         </div>
       </div>
     </div>

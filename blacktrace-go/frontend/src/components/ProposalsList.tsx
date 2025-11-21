@@ -27,9 +27,9 @@ export function ProposalsList() {
         try {
           const response = await aliceAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
-            // Filter out proposals without IDs and sort by timestamp (latest first)
+            // Filter out proposals without IDs, accepted proposals, and sort by timestamp (latest first)
             const validProposals = response.proposals
-              .filter(p => p.id && p.id.trim() !== '')
+              .filter(p => p.id && p.id.trim() !== '' && p.status !== 'accepted')
               .sort((a, b) => {
                 const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
                 const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;

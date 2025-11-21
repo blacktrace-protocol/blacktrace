@@ -5,17 +5,22 @@ import { Button } from './ui/button';
 import { bobAPI } from '../lib/api';
 import { useStore } from '../lib/store';
 import { Send, DollarSign, X } from 'lucide-react';
-import type { Order } from '../lib/types';
+import type { Order, Proposal } from '../lib/types';
 
 interface CreateProposalFormProps {
   order: Order;
   onClose: () => void;
   onSuccess: () => void;
+  initialProposal?: Proposal;
 }
 
-export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposalFormProps) {
-  const [amount, setAmount] = useState((order.amount / 100).toFixed(2));
-  const [price, setPrice] = useState('');
+export function CreateProposalForm({ order, onClose, onSuccess, initialProposal }: CreateProposalFormProps) {
+  const [amount, setAmount] = useState(
+    initialProposal ? initialProposal.amount.toString() : (order.amount / 100).toFixed(2)
+  );
+  const [price, setPrice] = useState(
+    initialProposal ? initialProposal.price.toString() : ''
+  );
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -23,9 +28,6 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
 
   // Handle order ID safely
   const orderId = order.id || (order as any).order_id || 'unknown';
-  const displayId = typeof orderId === 'string' && orderId.length > 16
-    ? `${orderId.substring(0, 8)}...${orderId.substring(orderId.length - 6)}`
-    : String(orderId);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -68,7 +70,7 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
               Make Proposal
             </CardTitle>
             <CardDescription>
-              Propose terms for Order #{displayId}...
+              Propose terms for this order
             </CardDescription>
           </div>
           <Button size="sm" variant="ghost" onClick={onClose}>
@@ -79,6 +81,12 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
       <CardContent>
         <div className="mb-4 p-3 bg-muted/30 rounded-md border border-border">
           <div className="text-xs text-muted-foreground mb-2">Order Details</div>
+          <div className="mb-2 pb-2 border-b border-border/50">
+            <div className="text-xs text-muted-foreground">Order ID</div>
+            <div className="font-mono text-xs break-all text-primary mt-1">
+              {orderId}
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
               <span className="text-muted-foreground">Amount:</span>
