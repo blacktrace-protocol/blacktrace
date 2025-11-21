@@ -38,15 +38,22 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
       const status = await api.getStatus();
       setPeerID(side, status.peer_id || status.peerID);
     } catch (err: any) {
-      // If login fails, try register
-      try {
-        const user = await api.register(username, password);
-        setUser(side, user);
+      const loginError = err.response?.data?.error || '';
 
-        const status = await api.getStatus();
-        setPeerID(side, status.peer_id || status.peerID);
-      } catch (registerErr: any) {
-        setError(registerErr.response?.data?.error || 'Login/Register failed');
+      // Only try to register if user doesn't exist
+      if (loginError.includes('not found') || loginError.includes('does not exist')) {
+        try {
+          const user = await api.register(username, password);
+          setUser(side, user);
+
+          const status = await api.getStatus();
+          setPeerID(side, status.peer_id || status.peerID);
+        } catch (registerErr: any) {
+          setError(registerErr.response?.data?.error || 'Registration failed');
+        }
+      } else {
+        // Login failed for other reason (wrong password, etc)
+        setError(loginError || 'Invalid username or password');
       }
     } finally {
       setLoading(false);

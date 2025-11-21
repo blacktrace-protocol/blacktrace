@@ -28,10 +28,16 @@ func NewAPIServer(app *BlackTraceApp, port int) *APIServer {
 // corsMiddleware adds CORS headers to allow frontend requests
 func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Allow requests from frontend
-		w.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		// Allow requests from any localhost port (dev mode)
+		origin := r.Header.Get("Origin")
+		if origin != "" {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+		} else {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Max-Age", "3600")
 
 		// Handle preflight requests
@@ -110,8 +116,20 @@ type CreateOrderResponse struct {
 	OrderID OrderID `json:"order_id"`
 }
 
+// OrderWithDetails combines announcement with details for UI
+type OrderWithDetails struct {
+	OrderID    string `json:"id"`          // Use string ID for compatibility
+	OrderType  string `json:"order_type"`
+	Stablecoin string `json:"stablecoin"`
+	Amount     uint64 `json:"amount"`
+	MinPrice   uint64 `json:"min_price"`
+	MaxPrice   uint64 `json:"max_price"`
+	Timestamp  int64  `json:"timestamp"`  // Unix seconds
+	Expiry     int64  `json:"expiry"`
+}
+
 type ListOrdersResponse struct {
-	Orders []*OrderAnnouncement `json:"orders"`
+	Orders []*OrderWithDetails `json:"orders"`
 }
 
 type NegotiateRequestRequest struct {
@@ -399,8 +417,45 @@ func (api *APIServer) handleOrders(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	orders := api.app.ListOrders()
-	api.sendJSON(w, ListOrdersResponse{Orders: orders})
+	// Get all orders
+	announcements := api.app.ListOrders()
+
+	// Enrich with details for UI
+	enrichedOrders := make([]*OrderWithDetails, 0)
+	for _, ann := range announcements {
+		// Try to get details from cache
+		api.app.orderDetailsMux.RLock()
+		details, hasDetails := api.app.orderDetails[ann.OrderID]
+		api.app.orderDetailsMux.RUnlock()
+
+		if hasDetails {
+			enrichedOrders = append(enrichedOrders, &OrderWithDetails{
+				OrderID:    string(ann.OrderID),
+				OrderType:  string(ann.OrderType),
+				Stablecoin: string(ann.Stablecoin),
+				Amount:     details.Amount,
+				MinPrice:   details.MinPrice,
+				MaxPrice:   details.MaxPrice,
+				Timestamp:  ann.Timestamp,
+				Expiry:     ann.Expiry,
+			})
+		} else {
+			// For demo: show announcements even without details (Bob can request details on click)
+			// Use placeholder values for amount/price
+			enrichedOrders = append(enrichedOrders, &OrderWithDetails{
+				OrderID:    string(ann.OrderID),
+				OrderType:  string(ann.OrderType),
+				Stablecoin: string(ann.Stablecoin),
+				Amount:     0,      // Placeholder - details not yet requested
+				MinPrice:   0,      // Placeholder
+				MaxPrice:   999999, // Placeholder
+				Timestamp:  ann.Timestamp,
+				Expiry:     ann.Expiry,
+			})
+		}
+	}
+
+	api.sendJSON(w, ListOrdersResponse{Orders: enrichedOrders})
 }
 
 func (api *APIServer) handleNegotiateRequest(w http.ResponseWriter, r *http.Request) {

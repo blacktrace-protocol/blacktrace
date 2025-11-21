@@ -18,6 +18,10 @@ type BlackTraceApp struct {
 	orders       map[OrderID]*OrderAnnouncement
 	ordersMux    sync.RWMutex
 
+	// Order details cache (for own orders and received details) - DEMO/UI only
+	orderDetails    map[OrderID]*OrderDetails
+	orderDetailsMux sync.RWMutex
+
 	// Proposal tracking - maps ProposalID to Proposal
 	proposals    map[ProposalID]*Proposal
 	proposalsMux sync.RWMutex
@@ -73,6 +77,7 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 		cryptoMgr:     nil, // Initialized on first user login
 		settlementMgr: settlementMgr,
 		orders:        make(map[OrderID]*OrderAnnouncement),
+		orderDetails:  make(map[OrderID]*OrderDetails),
 		proposals:     make(map[ProposalID]*Proposal),
 		peerKeys:      make(map[PeerID][]byte),
 		appCommandCh:  make(chan AppCommand, 100),
@@ -412,6 +417,19 @@ func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, 
 	app.ordersMux.Lock()
 	app.orders[orderID] = announcement
 	app.ordersMux.Unlock()
+
+	// Store order details for UI (DEMO/UI only - in production this would be encrypted)
+	details := &OrderDetails{
+		OrderID:    orderID,
+		OrderType:  OrderTypeSell,
+		Amount:     amount,
+		MinPrice:   minPrice,
+		MaxPrice:   maxPrice,
+		Stablecoin: stablecoin,
+	}
+	app.orderDetailsMux.Lock()
+	app.orderDetails[orderID] = details
+	app.orderDetailsMux.Unlock()
 
 	// Broadcast SIGNED announcement
 	if err := app.broadcastSignedMessage("order_announcement", announcement); err != nil {

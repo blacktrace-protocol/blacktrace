@@ -6,13 +6,13 @@ export interface User {
 
 export interface Order {
   id: string;
-  asset: string;
-  amount: number;
-  price: number;
-  side: "buy" | "sell";
+  order_type: string;
   stablecoin: string;
-  creatorID: string;
-  timestamp: string;
+  amount: number;
+  min_price: number;
+  max_price: number;
+  timestamp: number; // Unix seconds
+  expiry: number;
 }
 
 export interface Proposal {

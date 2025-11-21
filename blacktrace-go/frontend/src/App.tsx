@@ -1,11 +1,19 @@
 import { useStore } from './lib/store';
 import { LoginPanel } from './components/LoginPanel';
 import { NodeStatus } from './components/NodeStatus';
+import { CreateOrderForm } from './components/CreateOrderForm';
+import { ProposalsList } from './components/ProposalsList';
+import { MyOrders } from './components/MyOrders';
+import { OrdersList } from './components/OrdersList';
+import { CreateProposalForm } from './components/CreateProposalForm';
 import { Lock, Shield } from 'lucide-react';
+import { useState } from 'react';
+import type { Order } from './lib/types';
 
 function App() {
   const aliceUser = useStore((state) => state.alice.user);
   const bobUser = useStore((state) => state.bob.user);
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
 
   return (
     <div className="min-h-screen bg-background">
@@ -55,12 +63,9 @@ function App() {
               <LoginPanel side="alice" title="Alice Login" />
             ) : (
               <div className="space-y-4">
-                {/* Alice's trading interface will go here */}
-                <div className="rounded-lg border border-border bg-card p-6">
-                  <p className="text-center text-muted-foreground">
-                    Alice's trading interface coming soon...
-                  </p>
-                </div>
+                <CreateOrderForm />
+                <MyOrders />
+                <ProposalsList />
               </div>
             )}
           </div>
@@ -87,12 +92,15 @@ function App() {
               <LoginPanel side="bob" title="Bob Login" />
             ) : (
               <div className="space-y-4">
-                {/* Bob's trading interface will go here */}
-                <div className="rounded-lg border border-border bg-card p-6">
-                  <p className="text-center text-muted-foreground">
-                    Bob's trading interface coming soon...
-                  </p>
-                </div>
+                {selectedOrder ? (
+                  <CreateProposalForm
+                    order={selectedOrder}
+                    onClose={() => setSelectedOrder(null)}
+                    onSuccess={() => setSelectedOrder(null)}
+                  />
+                ) : (
+                  <OrdersList onSelectOrder={setSelectedOrder} />
+                )}
               </div>
             )}
           </div>
@@ -100,12 +108,40 @@ function App() {
 
         {/* Settlement Status Panel */}
         <div className="mt-6 rounded-lg border border-border bg-card p-4">
-          <div className="flex items-center gap-2">
-            <div className="h-2 w-2 rounded-full bg-green-500"></div>
-            <span className="text-sm font-medium">Settlement Pipeline</span>
-            <span className="ml-auto text-xs text-muted-foreground">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="h-2 w-2 rounded-full bg-green-500 animate-pulse"></div>
+              <span className="text-sm font-medium">Settlement Pipeline</span>
+            </div>
+            <span className="text-xs text-muted-foreground">
               NATS Connected • Rust Service Ready
             </span>
+          </div>
+
+          <div className="grid grid-cols-4 gap-3 mt-4">
+            <div className="border border-primary/50 rounded-md p-3 bg-primary/10">
+              <div className="text-xs text-muted-foreground mb-1">Privacy Layer</div>
+              <div className="font-semibold text-sm">Zcash</div>
+              <div className="text-xs text-green-400 mt-1">● Active</div>
+            </div>
+
+            <div className="border border-primary/50 rounded-md p-3 bg-primary/10">
+              <div className="text-xs text-muted-foreground mb-1">Stablecoin</div>
+              <div className="font-semibold text-sm">zTarknet</div>
+              <div className="text-xs text-green-400 mt-1">● Active</div>
+            </div>
+
+            <div className="border border-border rounded-md p-3 bg-muted/20 opacity-50">
+              <div className="text-xs text-muted-foreground mb-1">Stablecoin</div>
+              <div className="font-semibold text-sm">Solana</div>
+              <div className="text-xs text-muted-foreground mt-1">Coming Soon</div>
+            </div>
+
+            <div className="border border-border rounded-md p-3 bg-muted/20 opacity-50">
+              <div className="text-xs text-muted-foreground mb-1">Intents</div>
+              <div className="font-semibold text-sm">NEAR</div>
+              <div className="text-xs text-muted-foreground mt-1">Coming Soon</div>
+            </div>
           </div>
         </div>
       </div>

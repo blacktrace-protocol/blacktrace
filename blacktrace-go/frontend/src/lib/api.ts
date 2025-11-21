@@ -57,28 +57,35 @@ export class BlackTraceAPI {
   }
 
   async createOrder(order: {
-    asset: string;
+    session_id: string;
     amount: number;
-    price: number;
-    side: string;
     stablecoin: string;
-    recipient_peer_id?: string;
-  }): Promise<Order> {
-    const response = await this.client.post<Order>('/orders', order);
+    min_price: number;
+    max_price: number;
+  }): Promise<{ order_id: string }> {
+    const response = await this.client.post<{ order_id: string }>('/orders/create', order);
     return response.data;
   }
 
   async getOrders(): Promise<Order[]> {
-    const response = await this.client.get<Order[]>('/orders');
-    return response.data || [];
+    const response = await this.client.get<{ orders: Order[] }>('/orders');
+    return response.data?.orders || [];
+  }
+
+  async requestOrderDetails(orderId: string): Promise<{ status: string }> {
+    const response = await this.client.post<{ status: string }>('/negotiate/request', {
+      order_id: orderId,
+    });
+    return response.data;
   }
 
   async createProposal(proposal: {
+    session_id: string;
     order_id: string;
     amount: number;
     price: number;
-  }): Promise<Proposal> {
-    const response = await this.client.post<Proposal>('/proposals', proposal);
+  }): Promise<{ status: string }> {
+    const response = await this.client.post<{ status: string }>('/negotiate/propose', proposal);
     return response.data;
   }
 
@@ -87,8 +94,18 @@ export class BlackTraceAPI {
     return response.data || [];
   }
 
-  async acceptProposal(proposalID: string): Promise<void> {
-    await this.client.post(`/proposals/${proposalID}/accept`);
+  async getProposalsForOrder(orderId: string): Promise<{ proposals: Proposal[] }> {
+    const response = await this.client.post<{ proposals: Proposal[] }>('/negotiate/proposals', {
+      order_id: orderId,
+    });
+    return response.data;
+  }
+
+  async acceptProposal(proposalId: string): Promise<{ status: string }> {
+    const response = await this.client.post<{ status: string }>('/negotiate/accept', {
+      proposal_id: proposalId,
+    });
+    return response.data;
   }
 
   async decryptProposal(proposalID: string): Promise<Proposal> {
