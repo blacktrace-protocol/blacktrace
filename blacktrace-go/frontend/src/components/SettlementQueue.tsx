@@ -149,18 +149,27 @@ export function SettlementQueue() {
               key={proposal.id || `proposal-${idx}`}
               className="border border-green-900/50 bg-green-950/10 rounded-lg p-4"
             >
-              <div className="flex items-start justify-between mb-3">
-                <div className="flex items-center gap-2">
+              <div className="mb-3 border-b border-border pb-3">
+                <div className="flex items-center gap-2 mb-2">
                   <CheckCircle className="h-5 w-5 text-green-500" />
-                  <div>
-                    <div className="text-sm font-medium">Proposal #{proposal.id ? proposal.id.substring(0, 8) : 'N/A'}...</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      Order: {proposal.orderID?.substring(0, 12)}...
-                    </div>
+                  <div className="text-sm font-medium text-muted-foreground">Accepted Proposal</div>
+                  <div className="text-xs text-muted-foreground ml-auto">
+                    {proposal.timestamp ? new Date(proposal.timestamp).toLocaleString() : 'N/A'}
                   </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {proposal.timestamp ? new Date(proposal.timestamp).toLocaleString() : 'N/A'}
+                <div className="space-y-2 ml-7">
+                  <div>
+                    <div className="text-xs text-muted-foreground">Proposal ID</div>
+                    <div className="font-mono text-xs break-all text-primary">
+                      {proposal.id || 'N/A'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs text-muted-foreground">For Order</div>
+                    <div className="font-mono text-xs break-all text-primary">
+                      {proposal.orderID || 'N/A'}
+                    </div>
+                  </div>
                 </div>
               </div>
 

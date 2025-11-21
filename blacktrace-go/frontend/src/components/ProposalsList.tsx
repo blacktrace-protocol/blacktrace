@@ -145,12 +145,15 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
                     key={proposal.id || `proposal-${idx}`}
                     className="border border-border rounded-lg p-4"
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-sm font-mono text-muted-foreground">
-                        Proposal #{proposal.id ? proposal.id.substring(0, 8) : 'N/A'}...
+                    <div className="mb-3 pb-2 border-b border-border">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="text-xs text-muted-foreground">Proposal ID</div>
+                        <div className="text-xs text-muted-foreground">
+                          {proposal.timestamp ? new Date(proposal.timestamp).toLocaleString() : 'N/A'}
+                        </div>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {proposal.timestamp ? new Date(proposal.timestamp).toLocaleString() : 'N/A'}
+                      <div className="font-mono text-xs break-all text-primary">
+                        {proposal.id || 'N/A'}
                       </div>
                     </div>
 
