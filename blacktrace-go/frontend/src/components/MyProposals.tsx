@@ -7,9 +7,10 @@ import type { Proposal, Order } from '../lib/types';
 
 interface MyProposalsProps {
   onEditProposal: (order: Order, proposal: Proposal) => void;
+  onCountChange?: (count: number) => void;
 }
 
-export function MyProposals({ onEditProposal }: MyProposalsProps) {
+export function MyProposals({ onEditProposal, onCountChange }: MyProposalsProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [proposalsByOrder, setProposalsByOrder] = useState<Record<string, Proposal[]>>({});
   const [loading, setLoading] = useState(false);
@@ -51,8 +52,12 @@ export function MyProposals({ onEditProposal }: MyProposalsProps) {
         }
       }
       setProposalsByOrder(proposalsMap);
+      // Count total proposals
+      const totalCount = Object.values(proposalsMap).reduce((acc, proposals) => acc + proposals.length, 0);
+      onCountChange?.(totalCount);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch proposals');
+      onCountChange?.(0);
     } finally {
       setLoading(false);
     }

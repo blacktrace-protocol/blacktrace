@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { aliceAPI, bobAPI } from '../lib/api';
-import { CheckCircle, RefreshCw, Zap } from 'lucide-react';
-import type { Proposal, Order } from '../lib/types';
+import { CheckCircle, RefreshCw, Zap, ChevronDown, ChevronUp } from 'lucide-react';
+import type { Proposal } from '../lib/types';
 
 export function SettlementQueue() {
-  const [orders, setOrders] = useState<Order[]>([]);
   const [acceptedProposals, setAcceptedProposals] = useState<Proposal[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const fetchAcceptedProposals = async () => {
     try {
@@ -26,7 +26,6 @@ export function SettlementQueue() {
       const uniqueOrders = Array.from(
         new Map(allOrders.map(order => [order.id, order])).values()
       );
-      setOrders(uniqueOrders);
 
       // Fetch proposals for each order and filter accepted ones
       const accepted: Proposal[] = [];
@@ -61,14 +60,35 @@ export function SettlementQueue() {
         }
       }
 
-      // Sort by timestamp (latest first)
-      const sortedAccepted = accepted.sort((a, b) => {
+      // Group proposals by orderID and keep only the latest one per order
+      const proposalsByOrderID = new Map<string, Proposal>();
+
+      for (const proposal of accepted) {
+        const orderID = proposal.orderID;
+        if (!orderID) continue;
+
+        const existing = proposalsByOrderID.get(orderID);
+        if (!existing) {
+          proposalsByOrderID.set(orderID, proposal);
+        } else {
+          // Compare timestamps and keep the latest
+          const existingTime = existing.timestamp ? new Date(existing.timestamp).getTime() : 0;
+          const proposalTime = proposal.timestamp ? new Date(proposal.timestamp).getTime() : 0;
+
+          if (proposalTime > existingTime) {
+            proposalsByOrderID.set(orderID, proposal);
+          }
+        }
+      }
+
+      // Convert map to array and sort by timestamp (latest first)
+      const uniqueAccepted = Array.from(proposalsByOrderID.values()).sort((a, b) => {
         const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
         const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
         return timeB - timeA;
       });
 
-      setAcceptedProposals(sortedAccepted);
+      setAcceptedProposals(uniqueAccepted);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch settlement queue');
     } finally {
@@ -85,17 +105,30 @@ export function SettlementQueue() {
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader
+        className="cursor-pointer hover:bg-muted/50 transition-colors"
+        onClick={() => setIsCollapsed(!isCollapsed)}
+      >
         <CardTitle className="flex items-center gap-2">
           <Zap className="h-5 w-5 text-green-500" />
           Settlement Queue
+          <span className="ml-1.5 px-2 py-0.5 text-sm font-bold bg-primary text-primary-foreground rounded">
+            {acceptedProposals.length}
+          </span>
           {loading && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
+          <span className="ml-auto">
+            {isCollapsed ? (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            )}
+          </span>
         </CardTitle>
         <CardDescription>
           Accepted proposals ready for settlement • Auto-refreshing every 5 seconds
         </CardDescription>
       </CardHeader>
-      <CardContent>
+      {!isCollapsed && (<CardContent>
         {error && (
           <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2 mb-4">
             {error}
@@ -159,7 +192,7 @@ export function SettlementQueue() {
             </div>
           ))}
         </div>
-      </CardContent>
+      </CardContent>)}
     </Card>
   );
 }

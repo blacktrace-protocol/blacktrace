@@ -5,7 +5,11 @@ import { aliceAPI } from '../lib/api';
 import { FileText, Check, RefreshCw } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 
-export function ProposalsList() {
+interface ProposalsListProps {
+  onCountChange?: (count: number) => void;
+}
+
+export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [proposalsByOrder, setProposalsByOrder] = useState<Record<string, Proposal[]>>({});
   const [loading, setLoading] = useState(false);
@@ -27,9 +31,9 @@ export function ProposalsList() {
         try {
           const response = await aliceAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
-            // Filter out proposals without IDs, accepted proposals, and sort by timestamp (latest first)
+            // Filter out proposals without IDs, accepted proposals, rejected proposals, and sort by timestamp (latest first)
             const validProposals = response.proposals
-              .filter(p => p.id && p.id.trim() !== '' && p.status !== 'accepted')
+              .filter(p => p.id && p.id.trim() !== '' && p.status !== 'accepted' && p.status !== 'rejected')
               .sort((a, b) => {
                 const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
                 const timeB = b.timestamp ? new Date(b.timestamp).getTime() : 0;
@@ -45,8 +49,12 @@ export function ProposalsList() {
         }
       }
       setProposalsByOrder(proposalsMap);
+      // Count total proposals
+      const totalCount = Object.values(proposalsMap).reduce((acc, proposals) => acc + proposals.length, 0);
+      onCountChange?.(totalCount);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch proposals');
+      onCountChange?.(0);
     } finally {
       setLoading(false);
     }

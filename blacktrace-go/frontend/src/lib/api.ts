@@ -55,7 +55,7 @@ export class BlackTraceAPI {
   }
 
   async register(username: string, password: string): Promise<User> {
-    const response = await this.client.post('/auth/register', {
+    await this.client.post('/auth/register', {
       username,
       password,
     });

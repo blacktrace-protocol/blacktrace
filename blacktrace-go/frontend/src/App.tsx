@@ -8,6 +8,7 @@ import { OrdersList } from './components/OrdersList';
 import { CreateProposalForm } from './components/CreateProposalForm';
 import { MyProposals } from './components/MyProposals';
 import { SettlementQueue } from './components/SettlementQueue';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Lock, Shield, LogOut } from 'lucide-react';
 import { useState } from 'react';
 import type { Order, Proposal } from './lib/types';
@@ -19,6 +20,12 @@ function App() {
   const logout = useStore((state) => state.logout);
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
+
+  // Track counts for tab badges
+  const [aliceOrdersCount, setAliceOrdersCount] = useState(0);
+  const [aliceProposalsCount, setAliceProposalsCount] = useState(0);
+  const [bobOrdersCount, setBobOrdersCount] = useState(0);
+  const [bobProposalsCount, setBobProposalsCount] = useState(0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -77,11 +84,26 @@ function App() {
             {!aliceUser ? (
               <LoginPanel side="alice" title="Alice Login" />
             ) : (
-              <div className="space-y-4">
-                <CreateOrderForm />
-                <MyOrders />
-                <ProposalsList />
-              </div>
+              <Tabs defaultValue="create-order" className="w-full">
+                <TabsList className="w-full">
+                  <TabsTrigger value="create-order">Create Order</TabsTrigger>
+                  <TabsTrigger value="my-orders">
+                    My Orders {aliceOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceOrdersCount}</span>}
+                  </TabsTrigger>
+                  <TabsTrigger value="incoming-proposals">
+                    Incoming Proposals {aliceProposalsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceProposalsCount}</span>}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="create-order">
+                  <CreateOrderForm />
+                </TabsContent>
+                <TabsContent value="my-orders">
+                  <MyOrders onCountChange={setAliceOrdersCount} />
+                </TabsContent>
+                <TabsContent value="incoming-proposals">
+                  <ProposalsList onCountChange={setAliceProposalsCount} />
+                </TabsContent>
+              </Tabs>
             )}
           </div>
 
@@ -115,31 +137,42 @@ function App() {
 
             {!bobUser ? (
               <LoginPanel side="bob" title="Bob Login" />
+            ) : selectedOrder ? (
+              <CreateProposalForm
+                order={selectedOrder}
+                initialProposal={editingProposal || undefined}
+                onClose={() => {
+                  setSelectedOrder(null);
+                  setEditingProposal(null);
+                }}
+                onSuccess={() => {
+                  setSelectedOrder(null);
+                  setEditingProposal(null);
+                }}
+              />
             ) : (
-              <div className="space-y-4">
-                {selectedOrder ? (
-                  <CreateProposalForm
-                    order={selectedOrder}
-                    initialProposal={editingProposal || undefined}
-                    onClose={() => {
-                      setSelectedOrder(null);
-                      setEditingProposal(null);
+              <Tabs defaultValue="available-orders" className="w-full">
+                <TabsList className="w-full">
+                  <TabsTrigger value="available-orders">
+                    Available Orders {bobOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobOrdersCount}</span>}
+                  </TabsTrigger>
+                  <TabsTrigger value="my-proposals">
+                    My Proposals {bobProposalsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobProposalsCount}</span>}
+                  </TabsTrigger>
+                </TabsList>
+                <TabsContent value="available-orders">
+                  <OrdersList onSelectOrder={setSelectedOrder} onCountChange={setBobOrdersCount} />
+                </TabsContent>
+                <TabsContent value="my-proposals">
+                  <MyProposals
+                    onEditProposal={(order, proposal) => {
+                      setSelectedOrder(order);
+                      setEditingProposal(proposal);
                     }}
-                    onSuccess={() => {
-                      setSelectedOrder(null);
-                      setEditingProposal(null);
-                    }}
+                    onCountChange={setBobProposalsCount}
                   />
-                ) : (
-                  <OrdersList onSelectOrder={setSelectedOrder} />
-                )}
-                <MyProposals onEditProposal={(order, proposal) => {
-                  // When editing a rejected proposal, set both order and proposal
-                  // This will open CreateProposalForm with pre-filled values
-                  setSelectedOrder(order);
-                  setEditingProposal(proposal);
-                }} />
-              </div>
+                </TabsContent>
+              </Tabs>
             )}
           </div>
         </div>

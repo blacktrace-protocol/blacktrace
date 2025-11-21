@@ -5,7 +5,11 @@ import { aliceAPI } from '../lib/api';
 import { ClipboardList, DollarSign, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Order } from '../lib/types';
 
-export function MyOrders() {
+interface MyOrdersProps {
+  onCountChange?: (count: number) => void;
+}
+
+export function MyOrders({ onCountChange }: MyOrdersProps = {}) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -16,11 +20,31 @@ export function MyOrders() {
       setLoading(true);
       setError('');
       const data = await aliceAPI.getOrders();
-      // Sort by timestamp (latest first)
-      const sortedOrders = data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
+      // Filter out orders that have accepted proposals
+      const ordersWithoutAccepted = await Promise.all(
+        data.map(async (order) => {
+          try {
+            const response = await aliceAPI.getProposalsForOrder(order.id);
+            const hasAccepted = response.proposals.some(p => p.status === 'accepted');
+            return hasAccepted ? null : order;
+          } catch {
+            // If we can't fetch proposals, keep the order
+            return order;
+          }
+        })
+      );
+
+      // Filter out null values and sort by timestamp (latest first)
+      const filteredOrders = ordersWithoutAccepted
+        .filter(order => order !== null) as Order[];
+      const sortedOrders = filteredOrders.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+
       setOrders(sortedOrders);
+      onCountChange?.(sortedOrders.length);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch orders');
+      onCountChange?.(0);
     } finally {
       setLoading(false);
     }
