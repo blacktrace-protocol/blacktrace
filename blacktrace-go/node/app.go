@@ -962,6 +962,32 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 	return nil
 }
 
+// RejectProposal rejects a specific proposal
+func (app *BlackTraceApp) RejectProposal(proposalID ProposalID) error {
+	app.proposalsMux.Lock()
+	proposal, ok := app.proposals[proposalID]
+	if !ok {
+		app.proposalsMux.Unlock()
+		return fmt.Errorf("proposal %s not found", proposalID)
+	}
+
+	// Update status to rejected
+	proposal.Status = ProposalStatusRejected
+	app.proposalsMux.Unlock()
+
+	log.Printf("App: Rejected proposal %s (Price: $%d, Amount: %d)", proposalID, proposal.Price, proposal.Amount)
+
+	// Notify proposer via P2P that proposal was rejected
+	if err := app.broadcastSignedMessage("rejection", map[string]interface{}{
+		"proposal_id": proposal.ProposalID,
+		"status":      "rejected",
+	}); err != nil {
+		log.Printf("Failed to broadcast rejection: %v", err)
+	}
+
+	return nil
+}
+
 // GetStatus returns the node's status
 func (app *BlackTraceApp) GetStatus() NodeStatus {
 	return app.network.GetStatus()

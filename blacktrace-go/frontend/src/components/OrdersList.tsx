@@ -20,7 +20,9 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
       setLoading(true);
       setError('');
       const data = await bobAPI.getOrders();
-      setOrders(data);
+      // Sort by timestamp (latest first)
+      const sortedOrders = data.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+      setOrders(sortedOrders);
     } catch (err: any) {
       setError(err.response?.data?.error || 'Failed to fetch orders');
     } finally {
@@ -95,9 +97,6 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
         <div className="space-y-3">
           {orders.map((order, index) => {
             const orderId = order.id || `order-${index}`;
-            const displayId = typeof orderId === 'string' && orderId.length > 16
-              ? `${orderId.substring(0, 8)}...${orderId.substring(orderId.length - 6)}`
-              : String(orderId);
 
             // Convert Unix seconds to milliseconds for JavaScript Date
             const timestamp = order.timestamp ? new Date(order.timestamp * 1000) : null;
@@ -107,11 +106,12 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
                 key={orderId}
                 className="border border-border rounded-lg p-4 hover:border-primary/50 transition-colors"
               >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm font-mono text-muted-foreground">
-                    Order #{displayId}...
+                <div className="mb-3 pb-2 border-b border-border">
+                  <div className="text-xs text-muted-foreground mb-1">Order ID</div>
+                  <div className="font-mono text-xs break-all text-primary">
+                    {orderId}
                   </div>
-                  <div className="text-xs text-muted-foreground">
+                  <div className="text-xs text-muted-foreground mt-1">
                     {timestamp ? timestamp.toLocaleString() : 'N/A'}
                   </div>
                 </div>

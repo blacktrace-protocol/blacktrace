@@ -1,6 +1,34 @@
 import axios, { type AxiosInstance } from 'axios';
 import type { User, Order, Proposal } from './types';
 
+// Backend proposal response format
+interface BackendProposal {
+  proposal_id: string;
+  order_id: string;
+  proposer_id: string;
+  amount: number;
+  price: number;
+  encrypted?: boolean;
+  encrypted_data?: string;
+  timestamp: string;
+  status: string;
+}
+
+// Map backend proposal format to frontend format
+function mapProposal(backendProposal: BackendProposal): Proposal {
+  return {
+    id: backendProposal.proposal_id,
+    orderID: backendProposal.order_id,
+    proposerID: backendProposal.proposer_id,
+    amount: backendProposal.amount,
+    price: backendProposal.price,
+    encrypted: backendProposal.encrypted || false,
+    encryptedData: backendProposal.encrypted_data,
+    timestamp: backendProposal.timestamp,
+    status: backendProposal.status.toLowerCase() as "pending" | "accepted" | "rejected",
+  };
+}
+
 export class BlackTraceAPI {
   private client: AxiosInstance;
   private token: string | null = null;
@@ -95,14 +123,23 @@ export class BlackTraceAPI {
   }
 
   async getProposalsForOrder(orderId: string): Promise<{ proposals: Proposal[] }> {
-    const response = await this.client.post<{ proposals: Proposal[] }>('/negotiate/proposals', {
+    const response = await this.client.post<{ proposals: BackendProposal[] }>('/negotiate/proposals', {
       order_id: orderId,
     });
-    return response.data;
+    // Map backend proposals to frontend format
+    const mappedProposals = (response.data.proposals || []).map(mapProposal);
+    return { proposals: mappedProposals };
   }
 
   async acceptProposal(proposalId: string): Promise<{ status: string }> {
     const response = await this.client.post<{ status: string }>('/negotiate/accept', {
+      proposal_id: proposalId,
+    });
+    return response.data;
+  }
+
+  async rejectProposal(proposalId: string): Promise<{ status: string }> {
+    const response = await this.client.post<{ status: string }>('/negotiate/reject', {
       proposal_id: proposalId,
     });
     return response.data;

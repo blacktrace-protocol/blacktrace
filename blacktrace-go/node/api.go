@@ -71,6 +71,7 @@ func (api *APIServer) Start() error {
 	mux.HandleFunc("/negotiate/propose", api.handleNegotiatePropose)
 	mux.HandleFunc("/negotiate/proposals", api.handleListProposals)
 	mux.HandleFunc("/negotiate/accept", api.handleAcceptProposal)
+	mux.HandleFunc("/negotiate/reject", api.handleRejectProposal)
 
 	// Network endpoints
 	mux.HandleFunc("/peers", api.handlePeers)
@@ -160,6 +161,14 @@ type AcceptProposalRequest struct {
 }
 
 type AcceptProposalResponse struct {
+	Status string `json:"status"`
+}
+
+type RejectProposalRequest struct {
+	ProposalID ProposalID `json:"proposal_id"`
+}
+
+type RejectProposalResponse struct {
 	Status string `json:"status"`
 }
 
@@ -592,6 +601,27 @@ func (api *APIServer) handleAcceptProposal(w http.ResponseWriter, r *http.Reques
 	}
 
 	api.sendJSON(w, AcceptProposalResponse{Status: "accepted"})
+}
+
+func (api *APIServer) handleRejectProposal(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req RejectProposalRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Reject the proposal
+	if err := api.app.RejectProposal(req.ProposalID); err != nil {
+		api.sendError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	api.sendJSON(w, RejectProposalResponse{Status: "rejected"})
 }
 
 func (api *APIServer) handlePeers(w http.ResponseWriter, r *http.Request) {

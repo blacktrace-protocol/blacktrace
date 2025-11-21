@@ -1,23 +1,27 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { aliceAPI } from '../lib/api';
-import { FileText, Check, RefreshCw } from 'lucide-react';
+import { bobAPI } from '../lib/api';
+import { FileText, RefreshCw, Edit2 } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 
-export function ProposalsList() {
+interface MyProposalsProps {
+  onEditProposal: (order: Order, proposal: Proposal) => void;
+}
+
+export function MyProposals({ onEditProposal }: MyProposalsProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [proposalsByOrder, setProposalsByOrder] = useState<Record<string, Proposal[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const fetchOrdersAndProposals = async () => {
+  const fetchMyProposals = async () => {
     try {
       setLoading(true);
       setError('');
 
       // Fetch all orders and sort by timestamp (latest first)
-      const ordersData = await aliceAPI.getOrders();
+      const ordersData = await bobAPI.getOrders();
       const sortedOrders = ordersData.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
       setOrders(sortedOrders);
 
@@ -25,7 +29,7 @@ export function ProposalsList() {
       const proposalsMap: Record<string, Proposal[]> = {};
       for (const order of sortedOrders) {
         try {
-          const response = await aliceAPI.getProposalsForOrder(order.id);
+          const response = await bobAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
             // Filter out proposals without IDs and sort by timestamp (latest first)
             const validProposals = response.proposals
@@ -53,31 +57,11 @@ export function ProposalsList() {
   };
 
   useEffect(() => {
-    fetchOrdersAndProposals();
+    fetchMyProposals();
     // Auto-refresh every 5 seconds
-    const interval = setInterval(fetchOrdersAndProposals, 5000);
+    const interval = setInterval(fetchMyProposals, 5000);
     return () => clearInterval(interval);
   }, []);
-
-  const handleAccept = async (proposalId: string) => {
-    try {
-      await aliceAPI.acceptProposal(proposalId);
-      // Refresh proposals after accepting
-      fetchOrdersAndProposals();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to accept proposal');
-    }
-  };
-
-  const handleReject = async (proposalId: string) => {
-    try {
-      await aliceAPI.rejectProposal(proposalId);
-      // Refresh proposals after rejecting
-      fetchOrdersAndProposals();
-    } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to reject proposal');
-    }
-  };
 
   // Count total proposals
   const totalProposals = Object.values(proposalsByOrder).reduce((acc, proposals) => acc + proposals.length, 0);
@@ -87,11 +71,11 @@ export function ProposalsList() {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <FileText className="h-5 w-5" />
-          Incoming Proposals
+          My Proposals
           {loading && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
         </CardTitle>
         <CardDescription>
-          Auto-refreshing every 5 seconds • {totalProposals} proposal{totalProposals !== 1 ? 's' : ''} across {orders.length} order{orders.length !== 1 ? 's' : ''}
+          Auto-refreshing every 5 seconds • {totalProposals} proposal{totalProposals !== 1 ? 's' : ''} submitted
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -101,15 +85,9 @@ export function ProposalsList() {
           </div>
         )}
 
-        {orders.length === 0 && !loading && (
+        {totalProposals === 0 && !loading && (
           <div className="text-center py-8 text-muted-foreground">
-            No orders yet. Create an order to receive proposals.
-          </div>
-        )}
-
-        {totalProposals === 0 && orders.length > 0 && !loading && (
-          <div className="text-center py-8 text-muted-foreground">
-            No proposals received yet. Waiting for takers...
+            No proposals submitted yet. Make a proposal on an order to see it here.
           </div>
         )}
 
@@ -122,13 +100,13 @@ export function ProposalsList() {
               <div key={order.id} className="space-y-3">
                 <div className="border-b border-border pb-2">
                   <div className="text-sm font-medium text-muted-foreground mb-1">
-                    Order ID (Full)
+                    For Order
                   </div>
                   <div className="font-mono text-xs break-all text-primary">
                     {order.id}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">
-                    {proposals.length} proposal{proposals.length !== 1 ? 's' : ''}
+                    {proposals.length} proposal{proposals.length !== 1 ? 's' : ''} for this order
                   </div>
                 </div>
 
@@ -170,9 +148,9 @@ export function ProposalsList() {
                     <div className="mb-3">
                       <div className="text-xs text-muted-foreground mb-1">Status</div>
                       <div className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${
-                        proposal.status?.toLowerCase() === 'accepted'
+                        proposal.status === 'accepted'
                           ? 'bg-green-950/20 text-green-400 border border-green-900'
-                          : proposal.status?.toLowerCase() === 'rejected'
+                          : proposal.status === 'rejected'
                           ? 'bg-red-950/20 text-red-400 border border-red-900'
                           : 'bg-yellow-950/20 text-yellow-400 border border-yellow-900'
                       }`}>
@@ -180,48 +158,21 @@ export function ProposalsList() {
                       </div>
                     </div>
 
-                    {proposal.encrypted && (
-                      <div className="mb-3 p-2 bg-amber-950/20 border border-amber-900 rounded text-xs text-amber-400">
-                        This proposal is encrypted
-                      </div>
+                    {proposal.status === 'rejected' && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => onEditProposal(order, proposal)}
+                      >
+                        <Edit2 className="h-4 w-4 mr-1" />
+                        Edit & Resubmit
+                      </Button>
                     )}
 
-                    {(!proposal.status || proposal.status?.toLowerCase() === 'pending') && (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => {
-                            if (!proposal.id) {
-                              setError('Proposal ID missing - cannot accept');
-                              return;
-                            }
-                            handleAccept(proposal.id);
-                          }}
-                        >
-                          <Check className="h-4 w-4 mr-1" />
-                          Accept
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => {
-                            if (!proposal.id) {
-                              setError('Proposal ID missing - cannot reject');
-                              return;
-                            }
-                            handleReject(proposal.id);
-                          }}
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-
-                    {proposal.status?.toLowerCase() === 'accepted' && (
-                      <div className="p-3 bg-green-950/20 border border-green-900 rounded text-sm text-green-400">
-                        ✓ Accepted - Ready for settlement
+                    {proposal.status === 'accepted' && (
+                      <div className="p-2 bg-green-950/20 border border-green-900 rounded text-xs text-green-400">
+                        ✓ This proposal has been accepted by the maker
                       </div>
                     )}
                   </div>
