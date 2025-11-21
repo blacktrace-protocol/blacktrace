@@ -1,5 +1,55 @@
 # Settlement Implementation Guide
 
+## ⚠️ Critical Architecture Clarification: Wallet Integration
+
+### The Key Question: Who Signs Transactions?
+
+**The Settlement Service CANNOT and SHOULD NOT sign blockchain transactions.** This is crucial to understand:
+
+```
+❌ WRONG: Settlement Service holds private keys
+   - Massive security risk
+   - Defeats "trustless" purpose
+   - Single point of failure
+   - Users don't control their funds
+
+✅ CORRECT: Users sign their own transactions
+   - Private keys stay in user wallets
+   - Settlement Service is a COORDINATOR only
+   - Fully trustless
+   - Standard wallet UX (like MetaMask)
+```
+
+### Settlement Service Role: Coordinator, Not Signer
+
+The Settlement Service orchestrates the atomic swap but **never touches private keys**:
+
+**What it DOES:**
+- ✅ Generates secret and hash for HTLCs
+- ✅ Publishes instructions to Alice and Bob's nodes
+- ✅ Monitors blockchains (read-only)
+- ✅ Coordinates claim sequence
+- ✅ Publishes status updates
+
+**What it DOES NOT do:**
+- ❌ Hold private keys
+- ❌ Sign transactions
+- ❌ Create HTLCs directly
+- ❌ Access user wallets
+
+### Transaction Signing Responsibility
+
+| Action | Who Signs | Private Key Location | How |
+|--------|-----------|---------------------|-----|
+| Create Zcash HTLC | **Alice** | Alice's Zcash wallet | Wallet popup in frontend |
+| Create Starknet HTLC | **Bob** | Bob's Starknet wallet (ArgentX) | Wallet popup in frontend |
+| Claim USDC | **Alice** | Alice's Starknet wallet | Wallet popup in frontend |
+| Claim ZEC | **Bob** | Bob's Zcash wallet | Wallet popup in frontend |
+
+**Settlement Service:** Only monitors and coordinates - **NO PRIVATE KEYS EVER**
+
+---
+
 ## Current Architecture Overview
 
 ### ✅ What's Already Built
@@ -129,6 +179,149 @@ Currently logs:
      Stablecoin:     USDC on ztarknet
 ```
 
+### 5. **Complete Settlement Flow with Wallet Integration**
+
+Here's the full flow showing how wallets are integrated:
+
+```
+1. Alice accepts proposal (Frontend)
+   ↓
+2. Go Backend → NATS: settlement.request
+   ↓
+3. Settlement Service receives request
+   ↓
+4. Settlement Service generates:
+   - secret = random_bytes(32)
+   - hash = SHA256(secret)
+   ↓
+5. Settlement Service → NATS → Alice's Node:
+   "settlement.instruction.alice_peer_id"
+   {
+     action: "create_zcash_htlc",
+     params: {
+       amount: 10000 ZEC,
+       hash: 0x123abc...,
+       recipient: bob_address,
+       timeout: 48h
+     }
+   }
+   ↓
+6. Alice's Node → WebSocket → Frontend:
+   {
+     type: "htlc_creation_required",
+     chain: "Zcash",
+     params: {...}
+   }
+   ↓
+7. Frontend shows modal:
+   "🔐 Sign Transaction to Lock 10,000 ZEC"
+   [Approve] [Reject]
+   ↓
+8. Alice clicks Approve
+   ↓
+9. Frontend → Zcash Wallet (browser extension or desktop):
+   wallet.signTransaction({
+     type: "create_htlc",
+     amount: 10000,
+     hash: 0x123abc...,
+     ...
+   })
+   ↓
+10. Zcash Wallet shows popup:
+    "Approve locking 10,000 ZEC?"
+    [Confirm] [Cancel]
+    ↓
+11. Alice enters password → Wallet signs transaction
+    ↓
+12. Signed TX broadcast to Zcash network
+    ↓
+13. Settlement Service monitors Zcash blockchain:
+    "✅ HTLC created! TX: 0xzcash_tx_hash"
+    ↓
+14. Settlement Service → NATS → Bob's Node:
+    "settlement.instruction.bob_peer_id"
+    {
+      action: "create_starknet_htlc",
+      params: {
+        amount: $4.65M USDC,
+        hash: 0x123abc... (same hash!),
+        recipient: alice_address,
+        timeout: 24h
+      }
+    }
+    ↓
+15. Bob's Node → WebSocket → Frontend:
+    {
+      type: "htlc_creation_required",
+      chain: "Starknet",
+      params: {...}
+    }
+    ↓
+16. Frontend shows modal:
+    "🔐 Sign Transaction to Lock $4,650,000 USDC"
+    [Approve] [Reject]
+    ↓
+17. Bob clicks Approve
+    ↓
+18. Frontend → ArgentX (Starknet wallet):
+    wallet.signTransaction({
+      type: "create_htlc",
+      amount: 4650000,
+      ...
+    })
+    ↓
+19. ArgentX shows popup:
+    "Approve locking $4,650,000 USDC?"
+    [Confirm] [Cancel]
+    ↓
+20. Bob confirms → Wallet signs transaction
+    ↓
+21. Signed TX broadcast to Starknet
+    ↓
+22. Settlement Service monitors Starknet:
+    "✅ Both HTLCs created!"
+    ↓
+23. Settlement Service → NATS → Alice's Node:
+    "settlement.instruction.alice_peer_id"
+    {
+      action: "claim_usdc",
+      secret: 0xsecret123...,
+      starknet_htlc_address: 0x...
+    }
+    ↓
+24. Alice's Frontend → ArgentX:
+    "🔐 Sign Transaction to Claim $4,650,000 USDC"
+    ↓
+25. Alice signs → Secret revealed on Starknet blockchain
+    ↓
+26. Settlement Service monitors Starknet:
+    "✅ Alice claimed USDC! Secret revealed: 0xsecret123..."
+    ↓
+27. Settlement Service → NATS → Bob's Node:
+    "settlement.instruction.bob_peer_id"
+    {
+      action: "claim_zec",
+      secret: 0xsecret123...,
+      zcash_htlc_address: 0x...
+    }
+    ↓
+28. Bob's Frontend → Zcash Wallet:
+    "🔐 Sign Transaction to Claim 10,000 ZEC"
+    ↓
+29. Bob signs → Claims ZEC
+    ↓
+30. Settlement Service:
+    "✅ ATOMIC SWAP COMPLETE"
+    - Alice received $4,650,000 USDC
+    - Bob received 10,000 ZEC
+```
+
+**Key Points:**
+- Settlement Service never holds keys - only sends instructions
+- Users approve every transaction in their wallets
+- Standard wallet UX (like MetaMask popups)
+- Fully trustless - users control funds at all times
+
 ---
 
 ## What's Missing: HTLC Implementation
@@ -240,6 +433,202 @@ Zcash HTLC verifies:
 - Alice gets $4,650,000 USDC
 - Bob gets 10,000 ZEC
 - **Both or neither** - no way to cheat
+
+---
+
+## Wallet Integration Architecture Options
+
+There are three approaches to implementing wallet integration, each with tradeoffs:
+
+### Option 1: Full Wallet Integration (Recommended for Production) ✅
+
+**Architecture:**
+```
+Settlement Service (Rust)
+    ↓ (NATS instructions)
+Go Backend Nodes
+    ↓ (WebSocket)
+Frontend
+    ↓ (Wallet API)
+User Wallets (ArgentX, Zcash Wallet)
+    ↓ (User approves)
+Blockchain
+```
+
+**Implementation:**
+```typescript
+// Frontend wallet integration
+const createHTLC = async (params) => {
+  // Connect to Starknet wallet (ArgentX)
+  const starknetWallet = await connect({ modalMode: "alwaysAsk" });
+
+  // Request signature
+  const tx = await starknetWallet.account.execute({
+    contractAddress: HTLC_CONTRACT_ADDRESS,
+    entrypoint: "create_htlc",
+    calldata: [
+      params.amount,
+      params.hash,
+      params.recipient,
+      params.timeout
+    ]
+  });
+
+  // Wait for transaction confirmation
+  await starknetWallet.provider.waitForTransaction(tx.transaction_hash);
+};
+```
+
+**Pros:**
+- ✅ Fully trustless - users control private keys
+- ✅ Standard wallet UX (familiar to crypto users)
+- ✅ No backend security risk
+- ✅ Production-ready architecture
+- ✅ Works with existing wallet ecosystems
+
+**Cons:**
+- ❌ Requires wallet integration development
+- ❌ Users must have wallets installed
+- ❌ More complex UX flow
+- ❌ Wallet popup friction
+
+**When to use:** Production deployment, when trustlessness is critical
+
+---
+
+### Option 2: Backend-Managed Wallets (Simpler, Less Secure) ⚠️
+
+**Architecture:**
+```
+Settlement Service (Rust)
+    ↓ (NATS instructions)
+Go Backend Nodes (holds wallet keys)
+    ↓ (Auto-signs transactions)
+Blockchain
+```
+
+**Implementation:**
+```go
+// Backend with wallet access
+type WalletManager struct {
+    zcashWallet    *ZcashWallet
+    starknetWallet *StarknetWallet
+}
+
+func (wm *WalletManager) CreateZcashHTLC(params HTLCParams) error {
+    // Backend signs transaction automatically
+    signedTx := wm.zcashWallet.SignHTLCCreation(params)
+    return wm.zcashWallet.Broadcast(signedTx)
+}
+```
+
+**Pros:**
+- ✅ Simpler implementation
+- ✅ No wallet popups - automatic signing
+- ✅ Faster UX - no user approval needed
+- ✅ Easier testing
+
+**Cons:**
+- ❌ Backend must store private keys (security risk)
+- ❌ Not fully trustless
+- ❌ Single point of failure
+- ❌ Users don't control their funds
+- ❌ Regulatory compliance issues
+
+**When to use:** Internal testing, demo mode (testnet only), trusted environment
+
+---
+
+### Option 3: Mock/Simulation Mode (Demo-Friendly) 🎭
+
+**Architecture:**
+```
+Settlement Service (Rust)
+    ↓ (NATS instructions)
+Go Backend Nodes
+    ↓ (WebSocket)
+Frontend
+    ↓ (No real blockchain)
+Mock HTLCs (in-memory simulation)
+```
+
+**Implementation:**
+```rust
+// Mock HTLC manager
+pub struct MockHTLCManager {
+    htlcs: HashMap<String, MockHTLC>,
+}
+
+impl MockHTLCManager {
+    async fn create_htlc(&mut self, params: HTLCParams) -> Result<String> {
+        let htlc_id = generate_id();
+
+        // Log instead of real blockchain
+        info!("✅ Mock HTLC created on {}", params.chain);
+        info!("   ID: {}", htlc_id);
+        info!("   Amount: {}", params.amount);
+        info!("   Hash: {}", params.hash);
+
+        // Store in memory
+        self.htlcs.insert(htlc_id.clone(), MockHTLC {
+            params,
+            status: "locked",
+            created_at: Utc::now(),
+        });
+
+        Ok(htlc_id)
+    }
+}
+```
+
+**Pros:**
+- ✅ Very fast to implement
+- ✅ No blockchain required
+- ✅ No wallet needed
+- ✅ Perfect for UI/UX demos
+- ✅ Test coordination logic
+
+**Cons:**
+- ❌ Not real settlement
+- ❌ Just a simulation
+- ❌ Can't verify actual atomicity
+- ❌ No smart contract testing
+
+**When to use:** Initial development, UI demos, coordination flow testing
+
+---
+
+### Recommended Implementation Path
+
+**Phase 1: Mock Mode (Week 1-2)**
+- Implement mock HTLC simulation
+- Test coordination flow
+- Build frontend UI
+- **Deliverable:** Working demo with simulated settlement
+
+**Phase 2: Backend Wallets - Testnet (Week 3-4)**
+- Add Zcash testnet wallet
+- Add Starknet testnet wallet
+- Test real HTLC creation
+- **Deliverable:** Real testnet settlements
+
+**Phase 3: Full Wallet Integration - Mainnet (Week 5+)**
+- Integrate ArgentX for Starknet
+- Integrate Zcash wallet extension
+- Add transaction approval UX
+- **Deliverable:** Production-ready, trustless settlement
+
+---
+
+### Component Responsibilities by Option
+
+| Component | Mock Mode | Backend Wallets | Full Wallet Integration |
+|-----------|-----------|-----------------|------------------------|
+| **Settlement Service** | Generates instructions, logs mock HTLCs | Generates instructions, monitors blockchain | Generates instructions, monitors blockchain |
+| **Go Backend** | Receives instructions, notifies frontend | Receives instructions, **signs transactions**, broadcasts | Receives instructions, notifies frontend |
+| **Frontend** | Shows "Settlement in progress" | Shows transaction status | **Wallet popups**, user approves |
+| **Wallets** | N/A | Backend-controlled | **User-controlled** |
+| **Private Keys** | N/A | **Backend** (risky) | **User wallets** (secure) |
 
 ---
 
@@ -529,31 +918,248 @@ Proposal Accepted → NATS → Settlement Service → HTLCs Created
 
 ## Questions & Answers
 
-### Q: Who initiates the settlement?
-**A:** The **Go backend (Alice's node)** automatically initiates when Alice accepts a proposal. It publishes to NATS, and the Settlement Service (Rust) picks it up.
+### Q1: How will Alice authorize and sign transaction to lock ZEC into HTLC?
 
-### Q: Does Alice or Bob need to do anything?
-**A:** Currently, **Alice accepts the proposal** (manual). After that, settlement is **fully automated**:
-- Settlement Service creates HTLCs
-- Alice's wallet auto-claims USDC (or manual with wallet integration)
-- Bob's wallet auto-claims ZEC (by watching Alice's claim)
+**A:** Alice uses her **own Zcash wallet** to sign the transaction. The Settlement Service **never** has access to her private keys.
 
-### Q: What if one party doesn't claim?
+**Step-by-step flow:**
+
+1. **Alice accepts proposal** in frontend → Go backend publishes to NATS
+2. **Settlement Service** generates HTLC parameters (amount, hash, timeout)
+3. **Settlement Service → NATS** publishes instruction: `settlement.instruction.alice_peer_id`
+   ```json
+   {
+     "action": "create_zcash_htlc",
+     "params": {
+       "amount": 10000,
+       "hash": "0x123abc...",
+       "recipient": "bob_zcash_address",
+       "timeout": 48
+     }
+   }
+   ```
+4. **Go Backend (Alice)** subscribes to instructions, receives it
+5. **Go Backend → WebSocket → Frontend**: Notify Alice of pending HTLC
+6. **Frontend shows modal**: "🔐 Sign Transaction to Lock 10,000 ZEC"
+7. **Alice clicks "Approve"**
+8. **Frontend → Zcash Wallet** (browser extension or desktop wallet):
+   ```typescript
+   const tx = await zcashWallet.signTransaction({
+     type: "create_htlc",
+     amount: 10000,
+     hash: "0x123abc...",
+     recipient: "bob_address",
+     timeout: 172800 // 48 hours in seconds
+   });
+   ```
+9. **Zcash Wallet popup**: "Approve locking 10,000 ZEC?" → Alice enters password
+10. **Wallet signs** transaction with Alice's private key (stays in wallet)
+11. **Signed transaction broadcast** to Zcash network
+12. **Settlement Service monitors** Zcash blockchain (read-only): "✅ HTLC created!"
+
+**Key points:**
+- ✅ Alice's private key **never leaves her wallet**
+- ✅ Settlement Service **cannot** create HTLC without Alice's approval
+- ✅ Standard wallet UX (like MetaMask)
+- ✅ Fully trustless
+
+---
+
+### Q2: How will Bob authorize and sign transaction to lock USDC on Starknet HTLC?
+
+**A:** Bob uses his **Starknet wallet (ArgentX or Braavos)** to sign the transaction. Same flow as Alice, but on Starknet.
+
+**Step-by-step flow:**
+
+1. **Settlement Service monitors Zcash** → sees Alice's HTLC created
+2. **Settlement Service → NATS** publishes instruction: `settlement.instruction.bob_peer_id`
+   ```json
+   {
+     "action": "create_starknet_htlc",
+     "params": {
+       "amount": 4650000,
+       "hash": "0x123abc...", // SAME HASH as Alice!
+       "recipient": "alice_starknet_address",
+       "timeout": 24
+     }
+   }
+   ```
+3. **Go Backend (Bob)** receives instruction via NATS subscription
+4. **Go Backend → WebSocket → Frontend**: Notify Bob
+5. **Frontend shows modal**: "🔐 Sign Transaction to Lock $4,650,000 USDC"
+6. **Bob clicks "Approve"**
+7. **Frontend → ArgentX (Starknet wallet)**:
+   ```typescript
+   const starknetWallet = await connect({ modalMode: "alwaysAsk" });
+
+   const tx = await starknetWallet.account.execute({
+     contractAddress: HTLC_CONTRACT_ADDRESS,
+     entrypoint: "create_htlc",
+     calldata: [
+       params.amount,
+       params.hash,
+       params.recipient,
+       params.timeout
+     ]
+   });
+   ```
+8. **ArgentX popup**: "Approve locking $4,650,000 USDC?" → Bob approves
+9. **Wallet signs** transaction with Bob's private key
+10. **Signed transaction broadcast** to Starknet
+11. **Settlement Service monitors** Starknet: "✅ Both HTLCs created! Ready to claim."
+
+**Key points:**
+- ✅ Bob's private key **never leaves his wallet**
+- ✅ Bob sees Alice locked ZEC **before** he locks USDC (security)
+- ✅ Same hash ensures atomic swap
+- ✅ Fully trustless
+
+---
+
+### Q3: How will settlement service coordinate this with the wallets?
+
+**A:** Settlement Service acts as a **coordinator**, not a signer. It orchestrates the swap by:
+
+**What Settlement Service DOES:**
+
+1. **Generates secret and hash**
+   ```rust
+   let secret = generate_random_bytes(32);
+   let hash = sha256(secret);
+   ```
+
+2. **Publishes instructions via NATS** (NOT creates HTLCs directly!)
+   ```rust
+   // Instruction for Alice
+   nats_client.publish(
+       "settlement.instruction.alice_peer_id",
+       json!({
+           "action": "create_zcash_htlc",
+           "params": {
+               "amount": 10000,
+               "hash": hash,
+               "recipient": bob_address,
+               "timeout": 48
+           }
+       })
+   ).await;
+   ```
+
+3. **Monitors blockchains** (read-only, no private keys needed)
+   ```rust
+   // Wait for Alice's HTLC on Zcash
+   let zcash_htlc = monitor_zcash_blockchain(hash).await;
+
+   // Wait for Bob's HTLC on Starknet
+   let starknet_htlc = monitor_starknet_blockchain(hash).await;
+   ```
+
+4. **Tells Alice to claim** (provides secret)
+   ```rust
+   nats_client.publish(
+       "settlement.instruction.alice_peer_id",
+       json!({
+           "action": "claim_usdc",
+           "secret": secret, // NOW revealed!
+           "htlc_address": starknet_htlc.address
+       })
+   ).await;
+   ```
+
+5. **Monitors secret reveal** on Starknet
+   ```rust
+   let revealed_secret = watch_claim_transaction(starknet_htlc).await;
+   ```
+
+6. **Tells Bob the secret is revealed** (Bob can now claim ZEC)
+   ```rust
+   nats_client.publish(
+       "settlement.instruction.bob_peer_id",
+       json!({
+           "action": "claim_zec",
+           "secret": revealed_secret, // Public now
+           "htlc_address": zcash_htlc.address
+       })
+   ).await;
+   ```
+
+**What Settlement Service DOES NOT DO:**
+- ❌ Hold any private keys
+- ❌ Sign any transactions
+- ❌ Create HTLCs directly
+- ❌ Access user funds
+
+**Communication Architecture:**
+```
+Settlement Service (Coordinator)
+    ↓ (NATS: settlement.instruction.*)
+Go Backend Nodes (Alice & Bob)
+    ↓ (WebSocket)
+Frontend (React)
+    ↓ (Wallet API: window.ethereum, window.starknet)
+User Wallets (ArgentX, Zcash Wallet)
+    ↓ (User approves)
+Blockchain (Zcash, Starknet)
+    ↑ (Settlement Service monitors read-only)
+Settlement Service (sees HTLCs, coordinates next step)
+```
+
+**Key coordination steps:**
+
+| Step | Settlement Service Action | User Action |
+|------|--------------------------|-------------|
+| 1 | Generate secret & hash | - |
+| 2 | Send instruction to Alice | - |
+| 3 | - | Alice signs HTLC creation (Zcash) |
+| 4 | Monitor Zcash, see HTLC created | - |
+| 5 | Send instruction to Bob | - |
+| 6 | - | Bob signs HTLC creation (Starknet) |
+| 7 | Monitor Starknet, see HTLC created | - |
+| 8 | Send claim instruction to Alice | - |
+| 9 | - | Alice signs claim (Starknet) |
+| 10 | Monitor Starknet, extract revealed secret | - |
+| 11 | Send claim instruction to Bob | - |
+| 12 | - | Bob signs claim (Zcash) |
+| 13 | Monitor Zcash, confirm claim | - |
+| 14 | Publish "swap complete" status | - |
+
+**Summary:** Settlement Service is like a **conductor** - it tells everyone when to play, but doesn't play the instruments itself. Users hold all the keys (literally).
+
+---
+
+### Q4: What if one party doesn't claim?
+
 **A:** **Automatic refund** after timeout:
 - Bob gets USDC back (24 hours)
 - Alice gets ZEC back (48 hours)
 
-### Q: Can we run settlement service without blockchain for now?
-**A:** Yes! Create a mock implementation:
+The refund is built into the HTLC smart contract - no coordination needed.
+
+---
+
+### Q5: Can we run settlement service without blockchain for now?
+
+**A:** Yes! Start with **Mock Mode** (Option 3):
+
 ```rust
 pub struct MockHTLCManager {
-    // Simulate HTLC creation and claims
-    // Log transactions without real blockchain
-    // Test the flow end-to-end
+    htlcs: HashMap<String, MockHTLC>,
+}
+
+impl MockHTLCManager {
+    async fn create_htlc(&mut self, params: HTLCParams) -> String {
+        // Don't create real HTLC, just log it
+        info!("✅ Mock HTLC created on {}", params.chain);
+
+        // Store in memory
+        let id = generate_id();
+        self.htlcs.insert(id.clone(), MockHTLC { params });
+        id
+    }
 }
 ```
 
-Then swap for real implementation later.
+This lets you test the **coordination flow** without real blockchain. Then upgrade to Backend Wallets (testnet) → Full Wallet Integration (mainnet).
 
 ---
 
