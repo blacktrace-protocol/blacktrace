@@ -61,6 +61,9 @@ func (api *APIServer) Start() error {
 	mux.HandleFunc("/auth/logout", api.handleAuthLogout)
 	mux.HandleFunc("/auth/whoami", api.handleAuthWhoami)
 
+	// User endpoints
+	mux.HandleFunc("/users", api.handleListUsers)
+
 	// Order and negotiation endpoints
 	mux.HandleFunc("/orders", api.handleOrders)
 	mux.HandleFunc("/orders/create", api.handleCreateOrder)
@@ -105,11 +108,12 @@ func (api *APIServer) Stop() {
 // Request/Response types
 
 type CreateOrderRequest struct {
-	SessionID  string         `json:"session_id"`
-	Amount     uint64         `json:"amount"`
-	Stablecoin StablecoinType `json:"stablecoin"`
-	MinPrice   uint64         `json:"min_price"`
-	MaxPrice   uint64         `json:"max_price"`
+	SessionID      string         `json:"session_id"`
+	Amount         uint64         `json:"amount"`
+	Stablecoin     StablecoinType `json:"stablecoin"`
+	MinPrice       uint64         `json:"min_price"`
+	MaxPrice       uint64         `json:"max_price"`
+	TakerUsername  string         `json:"taker_username,omitempty"`  // Optional: encrypt for specific taker
 }
 
 type CreateOrderResponse struct {
@@ -219,6 +223,15 @@ type AuthWhoamiResponse struct {
 	SessionID  string `json:"session_id"`
 	LoggedInAt string `json:"logged_in_at"`
 	ExpiresAt  string `json:"expires_at"`
+}
+
+type ListUsersResponse struct {
+	Users []UserInfo `json:"users"`
+}
+
+type UserInfo struct {
+	Username  string `json:"username"`
+	CreatedAt string `json:"created_at"`
 }
 
 // Handlers
@@ -368,6 +381,33 @@ func (api *APIServer) handleAuthWhoami(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (api *APIServer) handleListUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get all registered users with their public keys
+	usersInfo, err := ListAllUsersWithPublicKeys()
+	if err != nil {
+		api.sendError(w, "Failed to list users: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Convert to API response format
+	users := make([]UserInfo, len(usersInfo))
+	for i, userInfo := range usersInfo {
+		users[i] = UserInfo{
+			Username:  userInfo.Username,
+			CreatedAt: userInfo.CreatedAt.Format(time.RFC3339),
+		}
+	}
+
+	api.sendJSON(w, ListUsersResponse{
+		Users: users,
+	})
+}
+
 func (api *APIServer) handleCreateOrder(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -402,10 +442,14 @@ func (api *APIServer) handleCreateOrder(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Create order via app (will be updated to accept identity)
-	orderID := api.app.CreateOrder(req.Amount, req.Stablecoin, req.MinPrice, req.MaxPrice)
+	// Create order via app (passing taker username for targeted encryption)
+	orderID := api.app.CreateOrder(req.Amount, req.Stablecoin, req.MinPrice, req.MaxPrice, req.TakerUsername)
 
-	log.Printf("Order %s created by user: %s", orderID, identity.Username)
+	if req.TakerUsername != "" {
+		log.Printf("Order %s created by user: %s (encrypted for taker: %s)", orderID, identity.Username, req.TakerUsername)
+	} else {
+		log.Printf("Order %s created by user: %s", orderID, identity.Username)
+	}
 
 	// Send response
 	api.sendJSON(w, CreateOrderResponse{OrderID: orderID})

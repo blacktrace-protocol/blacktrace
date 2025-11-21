@@ -122,6 +122,11 @@ export class BlackTraceAPI {
     const response = await this.client.get('/peers');
     return response.data;
   }
+
+  async getUsers(): Promise<{ users: Array<{ username: string; created_at: string }> }> {
+    const response = await this.client.get<{ users: Array<{ username: string; created_at: string }> }>('/users');
+    return response.data;
+  }
 }
 
 // Create API instances for Alice and Bob

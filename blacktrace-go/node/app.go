@@ -2,9 +2,12 @@ package node
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"encoding/json"
 	"fmt"
 	"log"
+	"math/big"
 	"sync"
 	"time"
 )
@@ -40,10 +43,11 @@ type AppCommand struct {
 	Type string // "create_order", "request_details", "propose", etc.
 
 	// Order creation
-	Amount     uint64
-	Stablecoin StablecoinType
-	MinPrice   uint64
-	MaxPrice   uint64
+	Amount        uint64
+	Stablecoin    StablecoinType
+	MinPrice      uint64
+	MaxPrice      uint64
+	TakerUsername string // Optional: username of specific taker to encrypt for
 
 	// Negotiation
 	OrderID OrderID
@@ -210,7 +214,13 @@ func (app *BlackTraceApp) handleMessagePayload(from PeerID, msgType string, payl
 			return
 		}
 
-		log.Printf("App: Received order details: %s", details.OrderID)
+		log.Printf("App: Received order details: %s (Amount: %d, Min: %d, Max: %d)",
+			details.OrderID, details.Amount, details.MinPrice, details.MaxPrice)
+
+		// Store the received order details
+		app.orderDetailsMux.Lock()
+		app.orderDetails[details.OrderID] = &details
+		app.orderDetailsMux.Unlock()
 
 	case "proposal":
 		var proposal Proposal
@@ -263,8 +273,10 @@ func (app *BlackTraceApp) handleMessagePayload(from PeerID, msgType string, payl
 		log.Printf("App: Decrypted order details for %s: Amount=%d, Price=%d-%d %s",
 			details.OrderID, details.Amount, details.MinPrice, details.MaxPrice, details.Stablecoin)
 
-		// Store decrypted details or display to user
-		// TODO: Add to a separate map for decrypted order details
+		// Store the decrypted order details
+		app.orderDetailsMux.Lock()
+		app.orderDetails[details.OrderID] = &details
+		app.orderDetailsMux.Unlock()
 
 	case "encrypted_proposal":
 		var encMsg EncryptedProposalMessage
@@ -374,7 +386,7 @@ func (app *BlackTraceApp) cachePeerPublicKey(peerID PeerID, pubKey []byte) {
 func (app *BlackTraceApp) handleAppCommand(cmd AppCommand) {
 	switch cmd.Type {
 	case "create_order":
-		orderID := app.createOrder(cmd.Amount, cmd.Stablecoin, cmd.MinPrice, cmd.MaxPrice)
+		orderID := app.createOrder(cmd.Amount, cmd.Stablecoin, cmd.MinPrice, cmd.MaxPrice, cmd.TakerUsername)
 		if cmd.ResponseCh != nil {
 			cmd.ResponseCh <- orderID
 		}
@@ -400,25 +412,10 @@ func (app *BlackTraceApp) handleAppCommand(cmd AppCommand) {
 }
 
 // createOrder creates and broadcasts a new order
-func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, minPrice, maxPrice uint64) OrderID {
+func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, minPrice, maxPrice uint64, takerUsername string) OrderID {
 	orderID := NewOrderID()
 
-	announcement := &OrderAnnouncement{
-		OrderID:          orderID,
-		OrderType:        OrderTypeSell,
-		Stablecoin:       stablecoin,
-		MakerID:          app.GetPeerID(), // NEW: Include maker ID for encrypted proposals
-		EncryptedDetails: []byte{},        // Simplified
-		ProofCommitment:  []byte{},        // Would call Rust crypto here
-		Timestamp:        time.Now().Unix(),
-		Expiry:           time.Now().Add(1 * time.Hour).Unix(),
-	}
-
-	app.ordersMux.Lock()
-	app.orders[orderID] = announcement
-	app.ordersMux.Unlock()
-
-	// Store order details for UI (DEMO/UI only - in production this would be encrypted)
+	// Prepare order details
 	details := &OrderDetails{
 		OrderID:    orderID,
 		OrderType:  OrderTypeSell,
@@ -427,9 +424,57 @@ func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, 
 		MaxPrice:   maxPrice,
 		Stablecoin: stablecoin,
 	}
+
+	// Store order details locally
 	app.orderDetailsMux.Lock()
 	app.orderDetails[orderID] = details
 	app.orderDetailsMux.Unlock()
+
+	// Prepare announcement
+	announcement := &OrderAnnouncement{
+		OrderID:          orderID,
+		OrderType:        OrderTypeSell,
+		Stablecoin:       stablecoin,
+		MakerID:          app.GetPeerID(), // Include maker ID for encrypted proposals
+		EncryptedDetails: []byte{},        // Will be populated if taker is specified
+		ProofCommitment:  []byte{},        // Would call Rust crypto here
+		Timestamp:        time.Now().Unix(),
+		Expiry:           time.Now().Add(1 * time.Hour).Unix(),
+	}
+
+	// If a specific taker is specified, encrypt order details with their public key
+	if takerUsername != "" {
+		// Retrieve taker's public key from identity storage
+		takerInfo, err := GetUserPublicKey(takerUsername)
+		if err != nil {
+			log.Printf("Warning: Failed to get public key for taker %s: %v. Creating unencrypted order.", takerUsername, err)
+		} else {
+			// Reconstruct taker's ECDSA public key
+			takerPubKey := &ecdsa.PublicKey{
+				Curve: elliptic.P256(),
+				X:     new(big.Int).SetBytes(takerInfo.PublicKeyX),
+				Y:     new(big.Int).SetBytes(takerInfo.PublicKeyY),
+			}
+
+			// Encrypt order details using ECIES
+			detailsJSON, err := json.Marshal(details)
+			if err != nil {
+				log.Printf("Warning: Failed to marshal order details: %v", err)
+			} else {
+				encryptedMsg, err := ECIESEncrypt(takerPubKey, detailsJSON)
+				if err != nil {
+					log.Printf("Warning: Failed to encrypt order details for taker %s: %v", takerUsername, err)
+				} else {
+					announcement.EncryptedDetails = SerializeECIESMessage(encryptedMsg)
+					log.Printf("App: Encrypted order details for taker: %s", takerUsername)
+				}
+			}
+		}
+	}
+
+	app.ordersMux.Lock()
+	app.orders[orderID] = announcement
+	app.ordersMux.Unlock()
 
 	// Broadcast SIGNED announcement
 	if err := app.broadcastSignedMessage("order_announcement", announcement); err != nil {
@@ -437,7 +482,11 @@ func (app *BlackTraceApp) createOrder(amount uint64, stablecoin StablecoinType, 
 		return orderID
 	}
 
-	log.Printf("App: Created and broadcast signed order: %s", orderID)
+	if takerUsername != "" {
+		log.Printf("App: Created and broadcast order %s encrypted for taker: %s", orderID, takerUsername)
+	} else {
+		log.Printf("App: Created and broadcast signed order: %s", orderID)
+	}
 
 	return orderID
 }
@@ -466,12 +515,22 @@ func (app *BlackTraceApp) sendOrderDetails(to PeerID, orderID OrderID) {
 		return
 	}
 
+	// Get actual order details from storage
+	app.orderDetailsMux.RLock()
+	storedDetails, hasDetails := app.orderDetails[orderID]
+	app.orderDetailsMux.RUnlock()
+
+	if !hasDetails {
+		log.Printf("App: Order details not found for order: %s", orderID)
+		return
+	}
+
 	details := OrderDetails{
 		OrderID:    orderID,
 		OrderType:  order.OrderType,
-		Amount:     10000, // Simplified
-		MinPrice:   450,
-		MaxPrice:   470,
+		Amount:     storedDetails.Amount,
+		MinPrice:   storedDetails.MinPrice,
+		MaxPrice:   storedDetails.MaxPrice,
 		Stablecoin: order.Stablecoin,
 	}
 
@@ -511,13 +570,22 @@ func (app *BlackTraceApp) sendEncryptedOrderDetails(to PeerID, orderID OrderID) 
 		return fmt.Errorf("failed to parse recipient public key: %w", err)
 	}
 
-	// Create order details to encrypt
+	// Get actual order details from storage
+	app.orderDetailsMux.RLock()
+	storedDetails, hasDetails := app.orderDetails[orderID]
+	app.orderDetailsMux.RUnlock()
+
+	if !hasDetails {
+		return fmt.Errorf("order details not found for order: %s", orderID)
+	}
+
+	// Create order details to encrypt (using actual stored values)
 	details := OrderDetails{
 		OrderID:    orderID,
 		OrderType:  order.OrderType,
-		Amount:     10000, // TODO: Get from stored details
-		MinPrice:   450,   // TODO: Get from stored details
-		MaxPrice:   470,   // TODO: Get from stored details
+		Amount:     storedDetails.Amount,
+		MinPrice:   storedDetails.MinPrice,
+		MaxPrice:   storedDetails.MaxPrice,
 		Stablecoin: order.Stablecoin,
 	}
 
@@ -766,16 +834,17 @@ func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
 }
 
 // CreateOrder creates an order (synchronous API for external use)
-func (app *BlackTraceApp) CreateOrder(amount uint64, stablecoin StablecoinType, minPrice, maxPrice uint64) OrderID {
+func (app *BlackTraceApp) CreateOrder(amount uint64, stablecoin StablecoinType, minPrice, maxPrice uint64, takerUsername string) OrderID {
 	responseCh := make(chan interface{})
 
 	app.appCommandCh <- AppCommand{
-		Type:       "create_order",
-		Amount:     amount,
-		Stablecoin: stablecoin,
-		MinPrice:   minPrice,
-		MaxPrice:   maxPrice,
-		ResponseCh: responseCh,
+		Type:          "create_order",
+		Amount:        amount,
+		Stablecoin:    stablecoin,
+		MinPrice:      minPrice,
+		MaxPrice:      maxPrice,
+		TakerUsername: takerUsername,
+		ResponseCh:    responseCh,
 	}
 
 	result := <-responseCh

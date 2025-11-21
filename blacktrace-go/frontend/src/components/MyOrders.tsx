@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { aliceAPI } from '../lib/api';
-import { ClipboardList, DollarSign, RefreshCw } from 'lucide-react';
+import { ClipboardList, DollarSign, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Order } from '../lib/types';
 
 export function MyOrders() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [isCollapsed, setIsCollapsed] = useState(true);
 
   const fetchOrders = async () => {
     try {
@@ -34,43 +35,58 @@ export function MyOrders() {
     <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <ClipboardList className="h-5 w-5" />
-              My Orders
-            </CardTitle>
-            <CardDescription>
-              View your created orders and their status
-            </CardDescription>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setIsCollapsed(!isCollapsed)}
+              className="p-1"
+            >
+              {isCollapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </Button>
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <ClipboardList className="h-5 w-5" />
+                My Orders ({orders.length})
+              </CardTitle>
+              {!isCollapsed && (
+                <CardDescription>
+                  View your created orders and their status
+                </CardDescription>
+              )}
+            </div>
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={fetchOrders}
-            disabled={loading}
-          >
-            <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-          </Button>
+          {!isCollapsed && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={fetchOrders}
+              disabled={loading}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          )}
         </div>
       </CardHeader>
-      <CardContent>
-        {error && (
-          <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2 mb-4">
-            {error}
-          </div>
-        )}
+      {!isCollapsed && (
+        <CardContent>
+          {error && (
+            <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2 mb-4">
+              {error}
+            </div>
+          )}
 
-        {orders.length === 0 && !loading && (
-          <div className="text-center py-8 text-muted-foreground">
-            No orders created yet. Create your first order to get started!
-          </div>
-        )}
+          {orders.length === 0 && !loading && (
+            <div className="text-center py-8 text-muted-foreground">
+              No orders created yet. Create your first order to get started!
+            </div>
+          )}
 
-        <div className="space-y-3">
+          <div className="space-y-3">
           {orders.map((order, index) => {
             const orderId = order.id || `order-${index}`;
-            const displayId = typeof orderId === 'string' && orderId.length > 12
-              ? orderId.substring(0, 12)
+            const displayId = typeof orderId === 'string' && orderId.length > 16
+              ? `${orderId.substring(0, 8)}...${orderId.substring(orderId.length - 6)}`
               : String(orderId);
 
             // Convert Unix seconds to milliseconds for JavaScript Date
@@ -95,7 +111,7 @@ export function MyOrders() {
                   <div>
                     <div className="text-xs text-muted-foreground">Amount</div>
                     <div className="text-lg font-semibold">
-                      {order.amount} ZEC
+                      {(order.amount / 100).toFixed(2)} ZEC
                     </div>
                   </div>
                   <div>
@@ -110,12 +126,12 @@ export function MyOrders() {
                   <div className="flex items-center gap-1 text-sm">
                     <DollarSign className="h-3 w-3" />
                     <span className="text-muted-foreground">Min:</span>
-                    <span className="font-medium">${order.min_price || 0}</span>
+                    <span className="font-medium">${(order.min_price || 0).toFixed(2)}</span>
                   </div>
                   <div className="flex items-center gap-1 text-sm">
                     <DollarSign className="h-3 w-3" />
                     <span className="text-muted-foreground">Max:</span>
-                    <span className="font-medium">${order.max_price || 0}</span>
+                    <span className="font-medium">${(order.max_price || 0).toFixed(2)}</span>
                   </div>
                 </div>
 
@@ -133,14 +149,15 @@ export function MyOrders() {
                 <div className="mt-3 p-2 bg-primary/10 border border-primary/20 rounded-md text-xs">
                   <span className="text-muted-foreground">Total Value Range: </span>
                   <span className="font-semibold text-primary">
-                    ${(order.amount * order.min_price).toFixed(2)} - ${(order.amount * order.max_price).toFixed(2)}
+                    ${((order.amount / 100) * order.min_price).toFixed(2)} - ${((order.amount / 100) * order.max_price).toFixed(2)}
                   </span>
                 </div>
               </div>
             );
           })}
-        </div>
-      </CardContent>
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }

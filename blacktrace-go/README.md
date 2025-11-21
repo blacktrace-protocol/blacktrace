@@ -246,6 +246,47 @@ US fund wants to buy ZEC from Asian counterparty. Different jurisdictions, no le
 
 **Visual Impact**: Judges see encrypted blobs transform into terms, trustless execution.
 
+## Current Demo Limitations
+
+This demo implementation has the following limitations:
+
+### User Roles & Configuration
+1. **Single Maker Per Node**: While multiple users can register on the maker node (port 8080), all orders from that node share the same libp2p peer ID. Takers cannot distinguish which user created which order since the `OrderAnnouncement` only contains the node's peer ID, not the maker's username.
+   - **Workaround**: Run separate maker nodes for each maker user, or use the current setup with one primary maker per node.
+
+2. **Multiple Takers Supported**: Multiple users can register on the taker node (port 8081) and operate independently. Each taker user can:
+   - View encrypted orders targeted to them specifically
+   - Create separate encrypted proposals
+   - Maintain independent sessions
+
+### Order Types
+3. **Sell Orders Only**: The current implementation only supports **sell orders** where the maker sells ZEC for stablecoin.
+   - Maker = Always seller of ZEC
+   - Taker = Always buyer of ZEC (paying with stablecoin)
+   - Buy orders (maker buys ZEC with stablecoin) are not yet implemented.
+
+### Identity & Encryption
+4. **Shared Identity Storage Required**: For encrypted order creation to work in Docker, all nodes must share the same identities directory via the `shared-identities` volume. This is configured in `docker-compose.yml` and is necessary for makers to access takers' public keys at order creation time.
+
+5. **Targeted Encryption**: When creating an order with a specific taker username:
+   - Order details are encrypted using ECIES with the taker's public key
+   - Only the specified taker can decrypt the order details
+   - Other users see placeholder values (e.g., `???` for amount)
+
+### Trading & Settlement
+6. **No Order Cancellation**: Once an order is created and broadcast, it cannot be cancelled or modified.
+
+7. **No Partial Fills**: Orders are all-or-nothing. Partial fill support is not implemented.
+
+8. **Session Expiry**: User sessions expire after 24 hours and require re-login.
+
+9. **Single Stablecoin Per Order**: Each order can only specify one stablecoin type (USDC, USDT, or DAI). Mixed stablecoin settlements are not supported.
+
+### Settlement Service
+10. **HTLC Integration Pending**: The Zcash Orchard and Starknet HTLC smart contracts are in development. Current demo focuses on encrypted negotiation flow.
+
+These limitations are intentional for the demo scope and can be addressed in future iterations.
+
 ## Contributing
 
 This is a hackathon project. Contributions welcome after initial demo!

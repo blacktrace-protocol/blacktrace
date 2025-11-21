@@ -35,6 +35,7 @@ services:
       - blacktrace-net
     volumes:
       - maker-data:/root/.blacktrace
+      - shared-identities:/root/.blacktrace/identities
     depends_on:
       nats:
         condition: service_healthy
@@ -63,6 +64,7 @@ services:
       - blacktrace-net
     volumes:
       - taker-data:/root/.blacktrace
+      - shared-identities:/root/.blacktrace/identities
     depends_on:
       nats:
         condition: service_healthy
@@ -113,3 +115,4 @@ networks:
 volumes:
   maker-data:
   taker-data:
+  shared-identities:

@@ -14,7 +14,7 @@ interface CreateProposalFormProps {
 }
 
 export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposalFormProps) {
-  const [amount, setAmount] = useState(order.amount.toString());
+  const [amount, setAmount] = useState((order.amount / 100).toFixed(2));
   const [price, setPrice] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,8 +23,8 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
 
   // Handle order ID safely
   const orderId = order.id || (order as any).order_id || 'unknown';
-  const displayId = typeof orderId === 'string' && orderId.length > 8
-    ? orderId.substring(0, 8)
+  const displayId = typeof orderId === 'string' && orderId.length > 16
+    ? `${orderId.substring(0, 8)}...${orderId.substring(orderId.length - 6)}`
     : String(orderId);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -39,10 +39,11 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
     try {
       setLoading(true);
 
+      // Convert amount to cents, price stays as dollars
       await bobAPI.createProposal({
         session_id: user.token,
         order_id: orderId,
-        amount: parseFloat(amount),
+        amount: Math.round(parseFloat(amount) * 100),
         price: parseFloat(price),
       });
 
@@ -81,7 +82,7 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
           <div className="grid grid-cols-2 gap-2 text-sm">
             <div>
               <span className="text-muted-foreground">Amount:</span>
-              <span className="ml-2 font-medium">{order.amount} ZEC</span>
+              <span className="ml-2 font-medium">{(order.amount / 100).toFixed(2)} ZEC</span>
             </div>
             <div>
               <span className="text-muted-foreground">For:</span>
@@ -89,11 +90,11 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
             </div>
             <div>
               <span className="text-muted-foreground">Min Price:</span>
-              <span className="ml-2 font-medium">${order.min_price}</span>
+              <span className="ml-2 font-medium">${order.min_price.toFixed(2)}</span>
             </div>
             <div>
               <span className="text-muted-foreground">Max Price:</span>
-              <span className="ml-2 font-medium">${order.max_price}</span>
+              <span className="ml-2 font-medium">${order.max_price.toFixed(2)}</span>
             </div>
           </div>
         </div>
@@ -106,13 +107,13 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
             <Input
               type="number"
               step="0.01"
-              placeholder={order.amount.toString()}
+              placeholder={(order.amount / 100).toFixed(2)}
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               required
             />
             <p className="text-xs text-muted-foreground">
-              Max: {order.amount} ZEC
+              Max: {(order.amount / 100).toFixed(2)} ZEC
             </p>
           </div>
 
@@ -125,7 +126,7 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
               <Input
                 type="number"
                 step="0.01"
-                placeholder={order.min_price.toString()}
+                placeholder={order.min_price.toFixed(2)}
                 className="pl-9"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
@@ -133,7 +134,7 @@ export function CreateProposalForm({ order, onClose, onSuccess }: CreateProposal
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Range: ${order.min_price} - ${order.max_price}
+              Range: ${order.min_price.toFixed(2)} - ${order.max_price.toFixed(2)}
             </p>
           </div>
 

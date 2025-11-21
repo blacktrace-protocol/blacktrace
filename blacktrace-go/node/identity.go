@@ -253,3 +253,100 @@ func IdentityExists(username string) (bool, error) {
 	}
 	return false, err
 }
+
+// UserPublicKeyInfo contains public information about a user
+type UserPublicKeyInfo struct {
+	Username   string    `json:"username"`
+	PublicKeyX []byte    `json:"public_key_x"`
+	PublicKeyY []byte    `json:"public_key_y"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// ListAllUsers returns a list of all registered usernames
+func ListAllUsers() ([]string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	identitiesPath := filepath.Join(homeDir, identityDir)
+
+	// Check if identities directory exists
+	if _, err := os.Stat(identitiesPath); os.IsNotExist(err) {
+		return []string{}, nil // No users registered yet
+	}
+
+	// Read all files in the identities directory
+	entries, err := os.ReadDir(identitiesPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read identities directory: %w", err)
+	}
+
+	var usernames []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		// Extract username from filename (remove .json extension)
+		filename := entry.Name()
+		if filepath.Ext(filename) == ".json" {
+			username := filename[:len(filename)-5] // Remove ".json"
+			usernames = append(usernames, username)
+		}
+	}
+
+	return usernames, nil
+}
+
+// GetUserPublicKey retrieves a user's public key without requiring password
+func GetUserPublicKey(username string) (*UserPublicKeyInfo, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	identityFile := filepath.Join(homeDir, identityDir, username+".json")
+
+	// Read identity file
+	data, err := os.ReadFile(identityFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("user %s not found", username)
+		}
+		return nil, fmt.Errorf("failed to read identity file: %w", err)
+	}
+
+	// Unmarshal identity
+	var identity UserIdentity
+	if err := json.Unmarshal(data, &identity); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal identity: %w", err)
+	}
+
+	// Return public key info only
+	return &UserPublicKeyInfo{
+		Username:   identity.Username,
+		PublicKeyX: identity.PublicKeyX,
+		PublicKeyY: identity.PublicKeyY,
+		CreatedAt:  identity.CreatedAt,
+	}, nil
+}
+
+// ListAllUsersWithPublicKeys returns all registered users with their public keys
+func ListAllUsersWithPublicKeys() ([]UserPublicKeyInfo, error) {
+	usernames, err := ListAllUsers()
+	if err != nil {
+		return nil, err
+	}
+
+	var users []UserPublicKeyInfo
+	for _, username := range usernames {
+		userInfo, err := GetUserPublicKey(username)
+		if err != nil {
+			// Skip users with corrupted identity files
+			continue
+		}
+		users = append(users, *userInfo)
+	}
+
+	return users, nil
+}

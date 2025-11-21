@@ -29,12 +29,16 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
   };
 
   const handleRequestDetails = async (orderId: string) => {
+    console.log('Request Details clicked for order:', orderId);
     try {
       setRequestingDetails(prev => new Set(prev).add(orderId));
       setError('');
-      await bobAPI.requestOrderDetails(orderId);
+      console.log('Sending request to backend...');
+      const response = await bobAPI.requestOrderDetails(orderId);
+      console.log('Request sent successfully:', response);
       // Details will arrive via P2P and appear in the next poll
     } catch (err: any) {
+      console.error('Request Details error:', err);
       setError(err.response?.data?.error || 'Failed to request order details');
     } finally {
       setRequestingDetails(prev => {
@@ -91,8 +95,8 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
         <div className="space-y-3">
           {orders.map((order, index) => {
             const orderId = order.id || `order-${index}`;
-            const displayId = typeof orderId === 'string' && orderId.length > 12
-              ? orderId.substring(0, 12)
+            const displayId = typeof orderId === 'string' && orderId.length > 16
+              ? `${orderId.substring(0, 8)}...${orderId.substring(orderId.length - 6)}`
               : String(orderId);
 
             // Convert Unix seconds to milliseconds for JavaScript Date
@@ -116,7 +120,7 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
                 <div>
                   <div className="text-xs text-muted-foreground">Amount</div>
                   <div className="text-lg font-semibold">
-                    {order.amount} ZEC
+                    {order.amount === 0 ? '???' : (order.amount / 100).toFixed(2)} ZEC
                   </div>
                 </div>
                 <div>
@@ -131,12 +135,12 @@ export function OrdersList({ onSelectOrder }: OrdersListProps) {
                 <div className="flex items-center gap-1 text-sm">
                   <DollarSign className="h-3 w-3" />
                   <span className="text-muted-foreground">Min:</span>
-                  <span className="font-medium">${order.min_price || 0}</span>
+                  <span className="font-medium">${order.amount === 0 ? '???' : (order.min_price || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex items-center gap-1 text-sm">
                   <DollarSign className="h-3 w-3" />
                   <span className="text-muted-foreground">Max:</span>
-                  <span className="font-medium">${order.max_price || 0}</span>
+                  <span className="font-medium">${order.amount === 0 ? '???' : (order.max_price || 0).toFixed(2)}</span>
                 </div>
               </div>
 
