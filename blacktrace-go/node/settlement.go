@@ -90,6 +90,39 @@ func (sm *SettlementManager) PublishSettlementRequest(req SettlementRequest) err
 	return nil
 }
 
+// PublishSettlementStatusUpdate publishes a settlement status update to NATS
+func (sm *SettlementManager) PublishSettlementStatusUpdate(update map[string]interface{}) error {
+	if !sm.enabled {
+		log.Printf("Settlement: Service disabled, skipping status update")
+		return nil
+	}
+
+	// Marshal update to JSON
+	data, err := json.Marshal(update)
+	if err != nil {
+		return fmt.Errorf("failed to marshal settlement status update: %w", err)
+	}
+
+	// Extract proposal ID for subject routing
+	proposalID, ok := update["proposal_id"].(string)
+	if !ok {
+		return fmt.Errorf("proposal_id not found in status update")
+	}
+
+	// Publish to NATS subject for status updates
+	subject := fmt.Sprintf("settlement.status.%s", proposalID)
+	if err := sm.nc.Publish(subject, data); err != nil {
+		return fmt.Errorf("failed to publish status update to NATS: %w", err)
+	}
+
+	status, _ := update["settlement_status"].(string)
+	action, _ := update["action"].(string)
+	log.Printf("Settlement: Published status update for proposal %s (status: %s, action: %s)",
+		proposalID, status, action)
+
+	return nil
+}
+
 // Close closes the NATS connection
 func (sm *SettlementManager) Close() {
 	if sm.enabled && sm.nc != nil {

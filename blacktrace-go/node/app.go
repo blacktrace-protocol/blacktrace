@@ -943,8 +943,10 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 		return fmt.Errorf("proposal %s not found", proposalID)
 	}
 
-	// Update status to accepted
+	// Update status to accepted and initialize settlement status
 	proposal.Status = ProposalStatusAccepted
+	readyStatus := SettlementStatusReady
+	proposal.SettlementStatus = &readyStatus
 	app.proposalsMux.Unlock()
 
 	log.Printf("App: Accepted proposal %s (Price: $%d, Amount: %d)", proposalID, proposal.Price, proposal.Amount)
@@ -1023,6 +1025,103 @@ func (app *BlackTraceApp) RejectProposal(proposalID ProposalID) error {
 	}
 
 	return nil
+}
+
+// LockZEC initiates settlement by locking ZEC (Alice's action)
+func (app *BlackTraceApp) LockZEC(proposalID ProposalID) (SettlementStatus, error) {
+	app.proposalsMux.Lock()
+	proposal, ok := app.proposals[proposalID]
+	if !ok {
+		app.proposalsMux.Unlock()
+		return "", fmt.Errorf("proposal %s not found", proposalID)
+	}
+
+	// Verify proposal is accepted
+	if proposal.Status != ProposalStatusAccepted {
+		app.proposalsMux.Unlock()
+		return "", fmt.Errorf("proposal %s is not accepted (status: %s)", proposalID, proposal.Status)
+	}
+
+	// Set settlement status to alice_locked
+	status := SettlementStatusAliceLocked
+	proposal.SettlementStatus = &status
+	app.proposalsMux.Unlock()
+
+	log.Printf("Settlement: Alice locked %d ZEC for proposal %s", proposal.Amount, proposalID)
+
+	// Publish settlement status update to NATS
+	if app.settlementMgr.IsEnabled() {
+		statusUpdate := map[string]interface{}{
+			"proposal_id":       string(proposalID),
+			"order_id":          string(proposal.OrderID),
+			"settlement_status": string(status),
+			"action":            "alice_lock_zec",
+			"amount":            proposal.Amount,
+			"timestamp":         time.Now(),
+		}
+
+		if err := app.settlementMgr.PublishSettlementStatusUpdate(statusUpdate); err != nil {
+			log.Printf("Warning: Failed to publish settlement status update: %v", err)
+		} else {
+			log.Printf("Settlement: Status update published to NATS (alice_locked)")
+		}
+	}
+
+	return status, nil
+}
+
+// LockUSDC completes settlement by locking USDC (Bob's action)
+func (app *BlackTraceApp) LockUSDC(proposalID ProposalID) (SettlementStatus, error) {
+	app.proposalsMux.Lock()
+	proposal, ok := app.proposals[proposalID]
+	if !ok {
+		app.proposalsMux.Unlock()
+		return "", fmt.Errorf("proposal %s not found", proposalID)
+	}
+
+	// Verify proposal is accepted and Alice has locked
+	if proposal.Status != ProposalStatusAccepted {
+		app.proposalsMux.Unlock()
+		return "", fmt.Errorf("proposal %s is not accepted (status: %s)", proposalID, proposal.Status)
+	}
+
+	if proposal.SettlementStatus == nil || *proposal.SettlementStatus != SettlementStatusAliceLocked {
+		app.proposalsMux.Unlock()
+		currentStatus := "none"
+		if proposal.SettlementStatus != nil {
+			currentStatus = string(*proposal.SettlementStatus)
+		}
+		return "", fmt.Errorf("cannot lock USDC: Alice has not locked ZEC yet (current status: %s)", currentStatus)
+	}
+
+	// Set settlement status to both_locked
+	status := SettlementStatusBothLocked
+	proposal.SettlementStatus = &status
+	app.proposalsMux.Unlock()
+
+	totalUSDC := proposal.Amount * proposal.Price
+	log.Printf("Settlement: Bob locked $%d USDC for proposal %s", totalUSDC, proposalID)
+	log.Printf("Settlement: Both assets now locked - ready for claiming")
+
+	// Publish settlement status update to NATS
+	if app.settlementMgr.IsEnabled() {
+		statusUpdate := map[string]interface{}{
+			"proposal_id":       string(proposalID),
+			"order_id":          string(proposal.OrderID),
+			"settlement_status": string(status),
+			"action":            "bob_lock_usdc",
+			"amount_usdc":       totalUSDC,
+			"timestamp":         time.Now(),
+		}
+
+		if err := app.settlementMgr.PublishSettlementStatusUpdate(statusUpdate); err != nil {
+			log.Printf("Warning: Failed to publish settlement status update: %v", err)
+		} else {
+			log.Printf("Settlement: Status update published to NATS (both_locked)")
+		}
+	}
+
+	return status, nil
 }
 
 // GetStatus returns the node's status

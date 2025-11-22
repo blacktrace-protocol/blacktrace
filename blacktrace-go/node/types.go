@@ -41,6 +41,18 @@ const (
 	ProposalStatusRejected ProposalStatus = "Rejected"
 )
 
+// SettlementStatus represents the settlement state of an accepted proposal
+type SettlementStatus string
+
+const (
+	SettlementStatusReady       SettlementStatus = "ready"        // Accepted, ready for Alice to lock
+	SettlementStatusAliceLocked SettlementStatus = "alice_locked" // Alice has locked ZEC
+	SettlementStatusBobLocked   SettlementStatus = "bob_locked"   // Bob has locked USDC (intermediate state)
+	SettlementStatusBothLocked  SettlementStatus = "both_locked"  // Both assets locked, ready for claiming
+	SettlementStatusClaiming    SettlementStatus = "claiming"     // Claim process initiated
+	SettlementStatusComplete    SettlementStatus = "complete"     // Settlement complete
+)
+
 // OrderAnnouncement is broadcast when an order is created
 type OrderAnnouncement struct {
 	OrderID          OrderID        `json:"order_id"`
@@ -83,13 +95,14 @@ type EncryptedAcceptanceMessage struct {
 
 // Proposal during price negotiation
 type Proposal struct {
-	ProposalID ProposalID     `json:"proposal_id"`
-	OrderID    OrderID        `json:"order_id"`
-	Price      uint64         `json:"price"`
-	Amount     uint64         `json:"amount"`
-	ProposerID PeerID         `json:"proposer_id"`
-	Status     ProposalStatus `json:"status"`
-	Timestamp  time.Time      `json:"timestamp"`
+	ProposalID       ProposalID        `json:"proposal_id"`
+	OrderID          OrderID           `json:"order_id"`
+	Price            uint64            `json:"price"`
+	Amount           uint64            `json:"amount"`
+	ProposerID       PeerID            `json:"proposer_id"`
+	Status           ProposalStatus    `json:"status"`
+	SettlementStatus *SettlementStatus `json:"settlement_status,omitempty"` // Only set when Status is Accepted
+	Timestamp        time.Time         `json:"timestamp"`
 }
 
 // Message is the wire protocol envelope

@@ -73,6 +73,10 @@ func (api *APIServer) Start() error {
 	mux.HandleFunc("/negotiate/accept", api.handleAcceptProposal)
 	mux.HandleFunc("/negotiate/reject", api.handleRejectProposal)
 
+	// Settlement endpoints
+	mux.HandleFunc("/settlement/lock-zec", api.handleLockZEC)
+	mux.HandleFunc("/settlement/lock-usdc", api.handleLockUSDC)
+
 	// Network endpoints
 	mux.HandleFunc("/peers", api.handlePeers)
 	mux.HandleFunc("/status", api.handleStatus)
@@ -170,6 +174,24 @@ type RejectProposalRequest struct {
 
 type RejectProposalResponse struct {
 	Status string `json:"status"`
+}
+
+type LockZECRequest struct {
+	ProposalID ProposalID `json:"proposal_id"`
+}
+
+type LockZECResponse struct {
+	Status           string `json:"status"`
+	SettlementStatus string `json:"settlement_status"`
+}
+
+type LockUSDCRequest struct {
+	ProposalID ProposalID `json:"proposal_id"`
+}
+
+type LockUSDCResponse struct {
+	Status           string `json:"status"`
+	SettlementStatus string `json:"settlement_status"`
 }
 
 type PeersResponse struct {
@@ -622,6 +644,56 @@ func (api *APIServer) handleRejectProposal(w http.ResponseWriter, r *http.Reques
 	}
 
 	api.sendJSON(w, RejectProposalResponse{Status: "rejected"})
+}
+
+func (api *APIServer) handleLockZEC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LockZECRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Lock ZEC for the proposal (Alice's action)
+	settlementStatus, err := api.app.LockZEC(req.ProposalID)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	api.sendJSON(w, LockZECResponse{
+		Status:           "zec_locked",
+		SettlementStatus: string(settlementStatus),
+	})
+}
+
+func (api *APIServer) handleLockUSDC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req LockUSDCRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Lock USDC for the proposal (Bob's action)
+	settlementStatus, err := api.app.LockUSDC(req.ProposalID)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	api.sendJSON(w, LockUSDCResponse{
+		Status:           "usdc_locked",
+		SettlementStatus: string(settlementStatus),
+	})
 }
 
 func (api *APIServer) handlePeers(w http.ResponseWriter, r *http.Request) {
