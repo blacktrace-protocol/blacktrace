@@ -436,6 +436,272 @@ Zcash HTLC verifies:
 
 ---
 
+## ⭐ User-Initiated Settlement (Recommended Approach)
+
+### Why User-Initiated?
+
+**The Problem with Auto-Triggered Settlement:**
+- ❌ User might not be at their screen when wallet popup appears
+- ❌ Unexpected wallet requests are bad UX
+- ❌ Creates timeout risk if user is away
+- ❌ No control over when settlement starts
+
+**The Solution: Let Users Start When Ready:**
+- ✅ Alice clicks "Lock ZEC" when she's ready
+- ✅ Bob clicks "Lock USDC" when he's ready
+- ✅ Clear, intentional actions
+- ✅ No surprise popups
+- ✅ Better UX
+
+### Settlement Tabs in UI
+
+Each user gets a dedicated **Settlement tab** in their panel:
+
+**Alice's Panel Tabs:**
+```
+[Create Order] [My Orders] [Incoming Proposals] [Settlement]
+```
+
+**Bob's Panel Tabs:**
+```
+[Available Orders] [My Proposals] [Settlement]
+```
+
+**Global Settlement Queue (Bottom):**
+- Shows proposals where BOTH sides locked
+- Displays claim buttons when ready
+
+### Complete User-Initiated Flow
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│          USER-INITIATED SETTLEMENT FLOW (RECOMMENDED)        │
+└─────────────────────────────────────────────────────────────┘
+
+STEP 1: Proposal Accepted
+─────────────────────────────
+Alice accepts proposal in "Incoming Proposals" tab
+    ↓
+Proposal moves to Alice's "Settlement" tab
+Status: settlement_status = "ready"
+
+┌──────────────────────────────────────┐
+│ Alice's "Settlement" Tab             │
+├──────────────────────────────────────┤
+│ Proposal #abc123                     │
+│ Amount: 10,000 ZEC for $4.65M USDC   │
+│ Status: Ready to Lock                │
+│ [Lock 10,000 ZEC] ← Alice clicks    │
+└──────────────────────────────────────┘
+
+STEP 2: Alice Locks ZEC (When Ready)
+─────────────────────────────
+Alice clicks "Lock 10,000 ZEC"
+    ↓
+Frontend → Zcash Wallet: "Sign transaction to lock 10,000 ZEC"
+    ↓
+Alice approves in wallet popup
+    ↓
+Transaction broadcast to Zcash network
+    ↓
+Settlement Service monitors blockchain
+    ↓
+Sees Alice's HTLC created ✅
+
+Status updates to: settlement_status = "alice_locked"
+
+┌──────────────────────────────────────┐
+│ Alice's "Settlement" Tab             │
+├──────────────────────────────────────┤
+│ Proposal #abc123                     │
+│ Status: ✅ ZEC Locked                │
+│ Waiting for Bob to lock USDC...     │
+└──────────────────────────────────────┘
+
+STEP 3: Proposal Moves to Bob's Panel
+─────────────────────────────
+Settlement Service → NATS → Bob's Node:
+  "Alice locked ZEC for proposal #abc123"
+    ↓
+Proposal appears in Bob's "Settlement" tab
+
+┌──────────────────────────────────────┐
+│ Bob's "Settlement" Tab               │
+├──────────────────────────────────────┤
+│ Proposal #abc123                     │
+│ Alice locked 10,000 ZEC ✅           │
+│ Your turn: Lock $4.65M USDC          │
+│ [Lock $4,650,000 USDC] ← Bob clicks │
+└──────────────────────────────────────┘
+
+STEP 4: Bob Locks USDC (When Ready)
+─────────────────────────────
+Bob clicks "Lock $4,650,000 USDC"
+    ↓
+Frontend → ArgentX (Starknet wallet): "Sign transaction"
+    ↓
+Bob approves in wallet popup
+    ↓
+Transaction broadcast to Starknet
+    ↓
+Settlement Service monitors blockchain
+    ↓
+Sees Bob's HTLC created ✅
+
+Status updates to: settlement_status = "both_locked"
+
+STEP 5: Moves to Global Settlement Queue
+─────────────────────────────
+Proposal disappears from Alice's "Settlement" tab
+Proposal disappears from Bob's "Settlement" tab
+    ↓
+Proposal appears in global "Settlement Queue" (bottom)
+
+┌──────────────────────────────────────┐
+│ Settlement Queue (Global)            │
+├──────────────────────────────────────┤
+│ Proposal #abc123                     │
+│ Alice: 10,000 ZEC locked ✅          │
+│ Bob: $4.65M USDC locked ✅           │
+│ Status: Ready to Claim               │
+│                                      │
+│ [Claim USDC] (Alice's button)       │
+│ [Claim ZEC] (Bob's button)          │
+└──────────────────────────────────────┘
+
+STEP 6: Claims (Coordinated by Settlement Service)
+─────────────────────────────
+Settlement Service → Alice: "Claim your USDC with secret..."
+    ↓
+Alice clicks "Claim USDC"
+    ↓
+Wallet popup → Alice signs claim transaction
+    ↓
+Secret revealed on Starknet blockchain
+    ↓
+Settlement Service sees secret
+    ↓
+Settlement Service → Bob: "Secret revealed! Claim your ZEC"
+    ↓
+Bob clicks "Claim ZEC"
+    ↓
+Wallet popup → Bob signs claim transaction
+    ↓
+✅ ATOMIC SWAP COMPLETE
+```
+
+### Proposal Lifecycle with Settlement Tabs
+
+```
+┌─────────────────────────────────────────────────────────┐
+│            PROPOSAL STATES & TAB LOCATIONS               │
+└─────────────────────────────────────────────────────────┘
+
+State: pending
+├─ Location: Alice's "Incoming Proposals" tab
+├─ Action: Alice can Accept/Reject
+└─ Bob sees: "My Proposals" tab (waiting)
+
+    ↓ Alice clicks "Accept"
+
+State: accepted, settlement_status: ready
+├─ Location: Alice's "Settlement" tab
+├─ Action: Alice can "Lock ZEC"
+└─ Bob sees: Nothing yet
+
+    ↓ Alice clicks "Lock ZEC" → Signs in wallet
+
+State: accepted, settlement_status: alice_locked
+├─ Location: Alice's "Settlement" tab (read-only status)
+├─ Action: Waiting for Bob
+├─ Location: Bob's "Settlement" tab
+└─ Action: Bob can "Lock USDC"
+
+    ↓ Bob clicks "Lock USDC" → Signs in wallet
+
+State: accepted, settlement_status: both_locked
+├─ Location: Global "Settlement Queue" (bottom)
+├─ Action: Alice can "Claim USDC"
+└─ Action: Bob can "Claim ZEC" (after Alice)
+
+    ↓ Alice claims → Bob claims
+
+State: accepted, settlement_status: complete
+└─ Location: History (future feature)
+```
+
+### Visual Layout
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Alice (Maker)                         │
+├─────────────────────────────────────────────────────────┤
+│ [Create Order] [My Orders] [Proposals] [Settlement (2)] │
+├─────────────────────────────────────────────────────────┤
+│  Settlement - Action Required                           │
+│                                                          │
+│  ┌─────────────────────────────────────┐               │
+│  │ Proposal #abc123                    │               │
+│  │ 10,000 ZEC for $4.65M USDC          │               │
+│  │ Status: Ready to Lock               │               │
+│  │ [Lock 10,000 ZEC] 🔐                │               │
+│  └─────────────────────────────────────┘               │
+│                                                          │
+│  ┌─────────────────────────────────────┐               │
+│  │ Proposal #def456                    │               │
+│  │ 5,000 ZEC for $2.3M USDC            │               │
+│  │ Status: ✅ ZEC Locked               │               │
+│  │ Waiting for Bob...                  │               │
+│  └─────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│                     Bob (Taker)                          │
+├─────────────────────────────────────────────────────────┤
+│ [Available Orders] [My Proposals] [Settlement (1)]      │
+├─────────────────────────────────────────────────────────┤
+│  Settlement - Action Required                           │
+│                                                          │
+│  ┌─────────────────────────────────────┐               │
+│  │ Proposal #def456                    │               │
+│  │ Alice locked 5,000 ZEC ✅           │               │
+│  │ Your turn: Lock $2.3M USDC          │               │
+│  │ [Lock $2,300,000 USDC] 🔐           │               │
+│  └─────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│            Settlement Queue (Global) 1                   │
+├─────────────────────────────────────────────────────────┤
+│  Both Sides Locked - Ready for Claims                   │
+│                                                          │
+│  ┌─────────────────────────────────────┐               │
+│  │ Proposal #abc123                    │               │
+│  │ Alice: 10,000 ZEC locked ✅         │               │
+│  │ Bob: $4.65M USDC locked ✅          │               │
+│  │                                      │               │
+│  │ [Claim USDC] (Alice)                │               │
+│  │ [Claim ZEC] (Bob)                   │               │
+│  └─────────────────────────────────────┘               │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Key Benefits
+
+| Feature | Auto-Triggered | User-Initiated ✅ |
+|---------|---------------|-------------------|
+| **User Control** | No - automatic | Yes - click button |
+| **Wallet Popups** | Unexpected | Expected (user clicked) |
+| **UX** | Confusing | Clear and intentional |
+| **Timeout Risk** | High (user might be away) | Low (user is present) |
+| **Tab Organization** | Single queue | Dedicated tabs |
+| **Visibility** | Mixed statuses | Clear progression |
+| **Implementation** | Complex (proactive) | Simpler (reactive) |
+
+**Conclusion:** User-initiated settlement is the recommended approach for BlackTrace.
+
+---
+
 ## Wallet Integration Architecture Options
 
 There are three approaches to implementing wallet integration, each with tradeoffs:

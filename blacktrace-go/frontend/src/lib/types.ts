@@ -25,6 +25,7 @@ export interface Proposal {
   encryptedData?: string;
   timestamp: string;
   status: "pending" | "accepted" | "rejected";
+  settlement_status?: "ready" | "alice_locked" | "bob_locked" | "both_locked" | "claiming" | "complete";
 }
 
 export interface SettlementStatus {

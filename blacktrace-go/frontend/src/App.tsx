@@ -7,6 +7,8 @@ import { MyOrders } from './components/MyOrders';
 import { OrdersList } from './components/OrdersList';
 import { CreateProposalForm } from './components/CreateProposalForm';
 import { MyProposals } from './components/MyProposals';
+import { AliceSettlement } from './components/AliceSettlement';
+import { BobSettlement } from './components/BobSettlement';
 import { SettlementQueue } from './components/SettlementQueue';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Lock, Shield, LogOut } from 'lucide-react';
@@ -24,8 +26,10 @@ function App() {
   // Track counts for tab badges
   const [aliceOrdersCount, setAliceOrdersCount] = useState(0);
   const [aliceProposalsCount, setAliceProposalsCount] = useState(0);
+  const [aliceSettlementCount, setAliceSettlementCount] = useState(0);
   const [bobOrdersCount, setBobOrdersCount] = useState(0);
   const [bobProposalsCount, setBobProposalsCount] = useState(0);
+  const [bobSettlementCount, setBobSettlementCount] = useState(0);
 
   return (
     <div className="min-h-screen bg-background">
@@ -85,13 +89,16 @@ function App() {
               <LoginPanel side="alice" title="Alice Login" />
             ) : (
               <Tabs defaultValue="create-order" className="w-full">
-                <TabsList className="w-full">
+                <TabsList className="w-full grid grid-cols-4">
                   <TabsTrigger value="create-order">Create Order</TabsTrigger>
                   <TabsTrigger value="my-orders">
                     My Orders {aliceOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceOrdersCount}</span>}
                   </TabsTrigger>
                   <TabsTrigger value="incoming-proposals">
-                    Incoming Proposals {aliceProposalsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceProposalsCount}</span>}
+                    Proposals {aliceProposalsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceProposalsCount}</span>}
+                  </TabsTrigger>
+                  <TabsTrigger value="settlement">
+                    Settlement {aliceSettlementCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceSettlementCount}</span>}
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="create-order">
@@ -102,6 +109,9 @@ function App() {
                 </TabsContent>
                 <TabsContent value="incoming-proposals">
                   <ProposalsList onCountChange={setAliceProposalsCount} />
+                </TabsContent>
+                <TabsContent value="settlement">
+                  <AliceSettlement onCountChange={setAliceSettlementCount} />
                 </TabsContent>
               </Tabs>
             )}
@@ -152,12 +162,15 @@ function App() {
               />
             ) : (
               <Tabs defaultValue="available-orders" className="w-full">
-                <TabsList className="w-full">
+                <TabsList className="w-full grid grid-cols-3">
                   <TabsTrigger value="available-orders">
-                    Available Orders {bobOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobOrdersCount}</span>}
+                    Orders {bobOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobOrdersCount}</span>}
                   </TabsTrigger>
                   <TabsTrigger value="my-proposals">
-                    My Proposals {bobProposalsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobProposalsCount}</span>}
+                    Proposals {bobProposalsCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobProposalsCount}</span>}
+                  </TabsTrigger>
+                  <TabsTrigger value="settlement">
+                    Settlement {bobSettlementCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobSettlementCount}</span>}
                   </TabsTrigger>
                 </TabsList>
                 <TabsContent value="available-orders">
@@ -171,6 +184,9 @@ function App() {
                     }}
                     onCountChange={setBobProposalsCount}
                   />
+                </TabsContent>
+                <TabsContent value="settlement">
+                  <BobSettlement onCountChange={setBobSettlementCount} />
                 </TabsContent>
               </Tabs>
             )}

@@ -48,7 +48,12 @@ export function SettlementQueue() {
           );
 
           const orderAccepted = uniqueProposals
-            .filter(p => p.status === 'accepted' && p.id && p.id.trim() !== '')
+            .filter(p =>
+              p.status === 'accepted' &&
+              p.settlement_status === 'both_locked' &&
+              p.id &&
+              p.id.trim() !== ''
+            )
             .map(p => ({
               ...p,
               orderID: order.id, // Ensure orderID is set
@@ -125,7 +130,7 @@ export function SettlementQueue() {
           </span>
         </CardTitle>
         <CardDescription>
-          Accepted proposals ready for settlement • Auto-refreshing every 5 seconds
+          Both assets locked - ready for claiming • Auto-refreshing every 5 seconds
         </CardDescription>
       </CardHeader>
       {!isCollapsed && (<CardContent>
@@ -138,8 +143,8 @@ export function SettlementQueue() {
         {acceptedProposals.length === 0 && !loading && (
           <div className="text-center py-8 text-muted-foreground">
             <CheckCircle className="h-12 w-12 mx-auto mb-3 text-muted-foreground/50" />
-            <div>No accepted proposals yet</div>
-            <div className="text-xs mt-1">Accepted proposals will appear here and wait for settlement processing</div>
+            <div>No fully locked proposals yet</div>
+            <div className="text-xs mt-1">Proposals will appear here once both Alice and Bob have locked their assets</div>
           </div>
         )}
 
@@ -196,7 +201,7 @@ export function SettlementQueue() {
 
               <div className="flex items-center gap-2 p-2 bg-green-950/30 border border-green-900 rounded text-xs">
                 <Zap className="h-4 w-4 text-green-500" />
-                <span className="text-green-400">Waiting for settlement service (NATS)</span>
+                <span className="text-green-400">Both assets locked - Settlement service will coordinate claim process</span>
               </div>
             </div>
           ))}
