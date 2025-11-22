@@ -82,7 +82,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       const totalUSDC = amount * price;
 
       // TODO: Integrate with real Starknet/ArgentX wallet
-      // This is a mock implementation
+      // This is a mock wallet interaction
       console.log('🔐 Mock Starknet Wallet Integration (ArgentX):');
       console.log('  1. Connect to ArgentX wallet');
       console.log('  2. Generate HTLC parameters (hash from Alice, timelock)');
@@ -95,14 +95,16 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       // Simulate wallet popup and transaction signing
       await new Promise(resolve => setTimeout(resolve, 2000));
 
-      // TODO: Replace with actual API call to backend to update settlement_status
-      // For now, just refresh to see backend updates via NATS
-      console.log('✅ Mock: USDC locked successfully, notifying settlement service...');
+      console.log('✅ Mock: USDC locked successfully, calling backend API...');
+
+      // Call backend API to update settlement status
+      const response = await bobAPI.lockUSDC(proposalId);
+      console.log(`✅ Backend: ${response.status}, settlement_status: ${response.settlement_status}`);
 
       // Refresh proposals to see updated status
       fetchSettlementProposals();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to lock USDC');
+      setError(err.response?.data?.error || err.message || 'Failed to lock USDC');
     } finally {
       setLockingProposal(null);
     }

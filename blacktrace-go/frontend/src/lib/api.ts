@@ -12,6 +12,7 @@ interface BackendProposal {
   encrypted_data?: string;
   timestamp: string;
   status: string;
+  settlement_status?: string;
 }
 
 // Map backend proposal format to frontend format
@@ -26,6 +27,7 @@ function mapProposal(backendProposal: BackendProposal): Proposal {
     encryptedData: backendProposal.encrypted_data,
     timestamp: backendProposal.timestamp,
     status: backendProposal.status.toLowerCase() as "pending" | "accepted" | "rejected",
+    settlement_status: backendProposal.settlement_status as "ready" | "alice_locked" | "bob_locked" | "both_locked" | "claiming" | "complete" | undefined,
   };
 }
 
@@ -140,6 +142,20 @@ export class BlackTraceAPI {
 
   async rejectProposal(proposalId: string): Promise<{ status: string }> {
     const response = await this.client.post<{ status: string }>('/negotiate/reject', {
+      proposal_id: proposalId,
+    });
+    return response.data;
+  }
+
+  async lockZEC(proposalId: string): Promise<{ status: string; settlement_status: string }> {
+    const response = await this.client.post<{ status: string; settlement_status: string }>('/settlement/lock-zec', {
+      proposal_id: proposalId,
+    });
+    return response.data;
+  }
+
+  async lockUSDC(proposalId: string): Promise<{ status: string; settlement_status: string }> {
+    const response = await this.client.post<{ status: string; settlement_status: string }>('/settlement/lock-usdc', {
       proposal_id: proposalId,
     });
     return response.data;

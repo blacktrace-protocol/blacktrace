@@ -80,7 +80,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       setError('');
 
       // TODO: Integrate with real Zcash wallet
-      // This is a mock implementation
+      // This is a mock wallet interaction
       console.log('🔐 Mock Zcash Wallet Integration:');
       console.log('  1. Generate HTLC parameters (hash, timelock)');
       console.log('  2. Request user signature via Zcash wallet popup');
@@ -91,14 +91,16 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       // Simulate wallet popup and transaction signing
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      // TODO: Replace with actual API call to backend to update settlement_status
-      // For now, just refresh to see backend updates via NATS
-      console.log('✅ Mock: ZEC locked successfully, notifying settlement service...');
+      console.log('✅ Mock: ZEC locked successfully, calling backend API...');
+
+      // Call backend API to update settlement status
+      const response = await aliceAPI.lockZEC(proposalId);
+      console.log(`✅ Backend: ${response.status}, settlement_status: ${response.settlement_status}`);
 
       // Refresh proposals to see updated status
       fetchSettlementProposals();
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Failed to lock ZEC');
+      setError(err.response?.data?.error || err.message || 'Failed to lock ZEC');
     } finally {
       setLockingProposal(null);
     }
