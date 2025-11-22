@@ -161,7 +161,7 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
                       <div>
                         <div className="text-xs text-muted-foreground">Amount</div>
                         <div className="text-lg font-semibold">
-                          {proposal.amount} ZEC
+                          {(proposal.amount / 100).toFixed(2)} ZEC
                         </div>
                       </div>
                       <div>
@@ -173,7 +173,7 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
                       <div>
                         <div className="text-xs text-muted-foreground">Total</div>
                         <div className="text-lg font-semibold text-primary">
-                          ${(proposal.amount * proposal.price).toFixed(2)}
+                          ${(proposal.amount / 100 * proposal.price).toFixed(2)}
                         </div>
                       </div>
                     </div>

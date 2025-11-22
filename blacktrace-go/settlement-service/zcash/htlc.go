@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"log"
 	"math/big"
 
 	"golang.org/x/crypto/ripemd160"
@@ -128,7 +129,7 @@ func encodeLocktime(locktime uint32) []byte {
 	return result
 }
 
-// ScriptToP2SHAddress converts a script to a P2SH address
+// ScriptToP2SHAddress converts a script to a P2SH address (Zcash format)
 func ScriptToP2SHAddress(script []byte, network string) (string, error) {
 	// Hash the script: RIPEMD160(SHA256(script))
 	shaHash := sha256.Sum256(script)
@@ -136,18 +137,22 @@ func ScriptToP2SHAddress(script []byte, network string) (string, error) {
 	ripemdHasher.Write(shaHash[:])
 	scriptHash := ripemdHasher.Sum(nil)
 
-	// Add version byte (0x05 for mainnet P2SH, 0xc4 for testnet/regtest)
-	var versionByte byte
+	// Zcash uses 2-byte version prefixes for P2SH addresses
+	// Mainnet: [0x1C, 0xBD]
+	// Testnet/Regtest: [0x1C, 0xBA]
+	var versionBytes []byte
 	if network == "regtest" || network == "testnet" {
-		versionByte = 0xc4
+		versionBytes = []byte{0x1C, 0xBA}
+		log.Printf("DEBUG: Network=%s, Using Zcash version bytes: %x (len=%d)\n", network, versionBytes, len(versionBytes))
 	} else {
-		versionByte = 0x05
+		versionBytes = []byte{0x1C, 0xBD}
+		log.Printf("DEBUG: Network=%s, Using Zcash version bytes: %x (len=%d)\n", network, versionBytes, len(versionBytes))
 	}
 
-	// Build address: version + script_hash + checksum
-	addressBytes := make([]byte, 1+len(scriptHash))
-	addressBytes[0] = versionByte
-	copy(addressBytes[1:], scriptHash)
+	// Build address: version_bytes + script_hash
+	addressBytes := make([]byte, 0, len(versionBytes)+len(scriptHash)+4)
+	addressBytes = append(addressBytes, versionBytes...)
+	addressBytes = append(addressBytes, scriptHash...)
 
 	// Calculate checksum: first 4 bytes of SHA256(SHA256(version + script_hash))
 	checksum1 := sha256.Sum256(addressBytes)

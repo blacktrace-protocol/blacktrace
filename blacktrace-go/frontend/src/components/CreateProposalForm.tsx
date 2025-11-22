@@ -16,7 +16,7 @@ interface CreateProposalFormProps {
 
 export function CreateProposalForm({ order, onClose, onSuccess, initialProposal }: CreateProposalFormProps) {
   const [amount, setAmount] = useState(
-    initialProposal ? initialProposal.amount.toString() : (order.amount / 100).toFixed(2)
+    initialProposal ? (initialProposal.amount / 100).toFixed(2) : (order.amount / 100).toFixed(2)
   );
   const [price, setPrice] = useState(
     initialProposal ? initialProposal.price.toString() : ''

@@ -153,7 +153,7 @@ func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC ui
 	log.Printf("Locktime: %d (block height)", locktime)
 
 	// Create and broadcast transaction locking ZEC to HTLC
-	amountFloat := float64(amountZEC) / 100000000.0 // Convert satoshis to ZEC
+	amountFloat := float64(amountZEC) // Amount is already in ZEC units
 	txid, err := s.zcashClient.CreateAndBroadcastHTLCLock(s.aliceAddress, p2shAddress, amountFloat)
 	if err != nil {
 		return fmt.Errorf("failed to create HTLC lock transaction: %w", err)
@@ -228,15 +228,16 @@ func (s *SettlementService) bootstrapZcash() error {
 	s.bobAddress = bobAddr
 	log.Printf("👤 Bob's address:   %s", bobAddr)
 
-	// Ensure we have enough balance to fund addresses
+	// Ensure we have enough balance to fund addresses (need 2100+ ZEC)
 	// Mine more blocks if needed
-	if balance < 20 {
-		blocksNeeded := 10 // Mine 10 more blocks (100 ZEC)
-		log.Printf("\n⛏️  Mining %d more blocks to ensure sufficient balance...", blocksNeeded)
+	if balance < 2200 {
+		// Each block gives 10 ZEC, need 220+ blocks
+		blocksNeeded := 250 // Mine 250 blocks (2500 ZEC)
+		log.Printf("\n⛏️  Mining %d blocks to build up balance...", blocksNeeded)
 		s.zcashClient.Generate(blocksNeeded)
 
-		// Wait for blocks to mature (mine 100 more to be safe)
-		log.Printf("⛏️  Mining 100 blocks to mature coinbase...")
+		// Wait for blocks to mature (need 100 confirmations)
+		log.Printf("⛏️  Mining 100 more blocks to mature coinbase...")
 		s.zcashClient.Generate(100)
 
 		// Get updated balance
@@ -247,20 +248,20 @@ func (s *SettlementService) bootstrapZcash() error {
 	// Fund Alice and Bob with test ZEC
 	log.Printf("\n💸 Funding test addresses...")
 
-	// Send 5 ZEC to Alice
-	txid, err := s.zcashClient.SendToAddress(aliceAddr, 5.0)
+	// Send 2000 ZEC to Alice (she's the maker who locks ZEC)
+	txid, err := s.zcashClient.SendToAddress(aliceAddr, 2000.0)
 	if err != nil {
 		log.Printf("Warning: Failed to fund Alice: %v", err)
 	} else {
-		log.Printf("✓ Funded Alice with 5 ZEC (txid: %s)", txid[:16]+"...")
+		log.Printf("✓ Funded Alice with 2000 ZEC (txid: %s)", txid[:16]+"...")
 	}
 
-	// Send 5 ZEC to Bob
-	txid, err = s.zcashClient.SendToAddress(bobAddr, 5.0)
+	// Send 100 ZEC to Bob (for testing, though he mainly locks USDC)
+	txid, err = s.zcashClient.SendToAddress(bobAddr, 100.0)
 	if err != nil {
 		log.Printf("Warning: Failed to fund Bob: %v", err)
 	} else {
-		log.Printf("✓ Funded Bob with 5 ZEC (txid: %s)", txid[:16]+"...")
+		log.Printf("✓ Funded Bob with 100 ZEC (txid: %s)", txid[:16]+"...")
 	}
 
 	// Mine a block to confirm transactions
