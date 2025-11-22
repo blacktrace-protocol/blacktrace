@@ -90,23 +90,45 @@ services:
         condition: service_started
     # Wait for both nodes to be ready, then run tests
     command: /bin/sh -c "sleep 15 && /tests/run-e2e-tests.sh"
+    profiles:
+      - test
 
-  # Rust settlement service (temporarily disabled due to Docker build issue)
-  # Can be run locally with: cd settlement-service && cargo run
-  # settlement-service:
-  #   build:
-  #     context: ./settlement-service
-  #     dockerfile: Dockerfile
-  #   container_name: blacktrace-settlement
-  #   environment:
-  #     - NATS_URL=nats://nats:4222
-  #     - RUST_LOG=info
-  #   networks:
-  #     - blacktrace-net
-  #   depends_on:
-  #     nats:
-  #       condition: service_healthy
-  #   restart: unless-stopped
+  # Rust settlement service - Coordinates atomic swaps
+  settlement-service:
+    build:
+      context: ./settlement-service
+      dockerfile: Dockerfile
+    container_name: blacktrace-settlement
+    environment:
+      - NATS_URL=nats://nats:4222
+      - RUST_LOG=settlement_service=info
+    networks:
+      - blacktrace-net
+    depends_on:
+      nats:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # React frontend - Split-screen UI for Alice and Bob
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: blacktrace-frontend
+    ports:
+      - "5173:5173"
+    networks:
+      - blacktrace-net
+    depends_on:
+      - node-maker
+      - node-taker
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:5173/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
 
 networks:
   blacktrace-net:
