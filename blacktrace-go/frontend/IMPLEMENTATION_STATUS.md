@@ -53,13 +53,44 @@ React + Vite + TypeScript frontend for BlackTrace OTC trading demo with split-sc
   - Supports editing rejected proposals
 
 ### Settlement Queue Panel
-- [x] Shows accepted proposals ready for settlement
+- [x] Shows proposals where both assets are locked (settlement_status = "both_locked")
 - [x] Displays full proposal ID and order ID with clear labels
 - [x] Deduplicates by order ID (shows only latest accepted proposal per order)
 - [x] Shows amount, price, total value
 - [x] Collapsible with count badge in header
 - [x] Auto-refresh every 5 seconds
-- [x] Fetches from both Alice and Bob APIs to show all accepted proposals
+- [x] Fetches from both Alice and Bob APIs to show all locked proposals
+
+### Alice Settlement Tab - User-Initiated Flow
+- [x] **Settlement Tab**: Dedicated tab for Alice to manage settlement
+  - Shows accepted proposals awaiting her action
+  - Filters for settlement_status = "ready" or "alice_locked"
+  - Auto-refresh every 5 seconds
+  - Count badge on tab
+- [x] **Lock ZEC Action**:
+  - "Lock ZEC" button for ready proposals
+  - Shows amount to lock and HTLC warning
+  - Mock wallet integration with console logs
+  - Simulates Zcash wallet popup and transaction signing
+- [x] **Status Display**:
+  - Shows "Ready to Lock ZEC" for new proposals
+  - Shows "ZEC Locked - Waiting for Bob" after Alice locks
+  - Clear visual indicators with color coding
+
+### Bob Settlement Tab - User-Initiated Flow
+- [x] **Settlement Tab**: Dedicated tab for Bob to complete settlement
+  - Shows proposals where Alice has locked ZEC (settlement_status = "alice_locked")
+  - Auto-refresh every 5 seconds
+  - Count badge on tab
+- [x] **Lock USDC Action**:
+  - "Lock USDC" button appears after Alice locks ZEC
+  - Shows USDC amount to lock and total value
+  - Mock wallet integration with console logs
+  - Simulates Starknet/ArgentX wallet popup and transaction signing
+- [x] **Safety Indicators**:
+  - Shows "Alice Locked ZEC" confirmation
+  - Explains atomic swap guarantees
+  - Clear instructions about wallet popup
 
 ## 🎨 UI Components
 
@@ -72,7 +103,9 @@ React + Vite + TypeScript frontend for BlackTrace OTC trading demo with split-sc
 - `CreateProposalForm` - Proposal creation/editing form
 - `MyProposals` - Bob's proposals list
 - `ProposalsList` - Alice's incoming proposals list
-- `SettlementQueue` - Accepted proposals ready for settlement
+- `AliceSettlement` - Alice's settlement tab (lock ZEC)
+- `BobSettlement` - Bob's settlement tab (lock USDC)
+- `SettlementQueue` - Fully locked proposals ready for claiming
 
 ### UI Library Components (shadcn/ui style)
 - `Button` - Styled buttons with variants
@@ -132,6 +165,15 @@ React + Vite + TypeScript frontend for BlackTrace OTC trading demo with split-sc
 3. Bob can edit and resubmit
 4. Old rejected proposals are hidden when new proposal is submitted
 
+### Settlement Flow (User-Initiated)
+1. Alice accepts proposal → settlement_status = "ready"
+2. Proposal appears in Alice's "Settlement" tab
+3. Alice clicks "Lock ZEC" → Mock wallet popup → settlement_status = "alice_locked"
+4. Proposal moves to Bob's "Settlement" tab
+5. Bob clicks "Lock USDC" → Mock wallet popup → settlement_status = "bob_locked"
+6. Proposal appears in Settlement Queue (both_locked)
+7. Settlement service coordinates claim process (future implementation)
+
 ## 🐛 Bug Fixes Applied
 
 ### Recent Fixes (2025-11-22)
@@ -159,6 +201,38 @@ React + Vite + TypeScript frontend for BlackTrace OTC trading demo with split-sc
    - Shows number of orders/proposals
    - Updates via callback from child components
 
+### Settlement UI Implementation (2025-11-22)
+1. **User-initiated settlement design**: Moved from auto-triggered to user-controlled flow
+   - Alice initiates by clicking "Lock ZEC" when ready
+   - Bob completes by clicking "Lock USDC" after Alice
+   - Users must be present to sign wallet transactions
+
+2. **Settlement tabs**: Added dedicated Settlement tab to both panels
+   - Alice panel: 4 tabs (Create Order | My Orders | Proposals | Settlement)
+   - Bob panel: 3 tabs (Orders | Proposals | Settlement)
+   - Count badges show number of proposals awaiting action
+
+3. **AliceSettlement component**: Alice's settlement interface
+   - Shows accepted proposals with settlement_status = ready or alice_locked
+   - "Lock ZEC" button with amount and warnings
+   - Status display showing "Waiting for Bob" after locking
+   - Mock Zcash wallet integration with console logs
+
+4. **BobSettlement component**: Bob's settlement interface
+   - Shows proposals with settlement_status = alice_locked
+   - "Lock USDC" button appears after Alice locks
+   - Safety indicators explaining atomic swap guarantees
+   - Mock Starknet/ArgentX wallet integration
+
+5. **Updated SettlementQueue**: Now shows only fully locked proposals
+   - Filter changed to settlement_status = both_locked
+   - Only appears after both Alice and Bob have locked assets
+   - Ready for final claim phase (to be implemented)
+
+6. **Type system**: Added settlement_status field to Proposal interface
+   - Values: ready | alice_locked | bob_locked | both_locked | claiming | complete
+   - Tracks progression through settlement lifecycle
+
 ## 🔜 Known Limitations
 
 ### Current Demo Scope
@@ -175,7 +249,9 @@ React + Vite + TypeScript frontend for BlackTrace OTC trading demo with split-sc
 - Price charts/history
 - Multi-party trades
 - Reputation system
-- Settlement monitoring UI (HTLC status)
+- Real wallet integration (currently mock placeholders)
+- Claim UI for final settlement step (after both_locked)
+- HTLC transaction monitoring and status updates
 
 ## 🚀 Future Enhancements
 
@@ -188,7 +264,11 @@ React + Vite + TypeScript frontend for BlackTrace OTC trading demo with split-sc
 
 ### Phase 2 (Medium-term)
 - [ ] WebSocket integration (replace polling)
-- [ ] Settlement status tracking (HTLC lifecycle)
+- [x] Settlement UI for user-initiated locking (completed)
+- [ ] Real Zcash wallet integration (replace mock)
+- [ ] Real Starknet/ArgentX wallet integration (replace mock)
+- [ ] Claim buttons in Settlement Queue (final step)
+- [ ] HTLC transaction status monitoring
 - [ ] Advanced filtering/sorting
 - [ ] Search functionality
 - [ ] Export trades to CSV
@@ -213,6 +293,8 @@ frontend/
 │   │   │   ├── label.tsx
 │   │   │   ├── select.tsx
 │   │   │   └── tabs.tsx
+│   │   ├── AliceSettlement.tsx
+│   │   ├── BobSettlement.tsx
 │   │   ├── CreateOrderForm.tsx
 │   │   ├── CreateProposalForm.tsx
 │   │   ├── LoginPanel.tsx
@@ -266,18 +348,23 @@ frontend/
 5. Frontend runs on port 5173 (default Vite)
 
 ### Key Files to Reference
-- `src/App.tsx` - Main layout and tab structure
-- `src/lib/types.ts` - Data structures
+- `src/App.tsx` - Main layout and tab structure with Settlement tabs
+- `src/lib/types.ts` - Data structures including settlement_status
 - `src/lib/api.ts` - API client configuration
-- `src/components/SettlementQueue.tsx` - Latest fixes applied here
+- `src/components/AliceSettlement.tsx` - Alice's settlement UI (lock ZEC)
+- `src/components/BobSettlement.tsx` - Bob's settlement UI (lock USDC)
+- `src/components/SettlementQueue.tsx` - Shows both_locked proposals
 
 ### Recent Commits
-- `56831b2` - Fix order lifecycle and add tabbed UI with count badges
-- `7425e55` - Display full IDs and hide proposals for orders with accepted proposals
+- `2501c16` - Add user-initiated settlement UI with dedicated tabs
+- `530d67e` - Add status sync, settlement queue, and proposal lifecycle improvements
+- `e7466a8` - Fix proposal display and add reject functionality
 
 ### Testing Focus Areas
-- Order disappears from both sides after acceptance
-- Settlement queue shows only one proposal per order
-- Rejected proposals hidden for accepted orders
-- Full IDs visible everywhere
-- Count badges update correctly
+- Settlement flow: Alice accepts → Alice locks → Bob locks → Settlement Queue
+- Settlement tabs show correct proposals at each stage
+- Count badges update correctly on all tabs
+- Mock wallet integration logs appear in console
+- SettlementQueue only shows both_locked proposals
+- Alice Settlement shows ready and alice_locked
+- Bob Settlement shows alice_locked only
