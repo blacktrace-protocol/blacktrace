@@ -184,7 +184,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                         <div>
                           <div className="text-xs text-muted-foreground">Amount</div>
                           <div className="text-lg font-semibold">
-                            {proposal.amount} ZEC
+                            {(proposal.amount / 100).toFixed(2)} ZEC
                           </div>
                         </div>
                         <div>
@@ -196,7 +196,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                         <div>
                           <div className="text-xs text-muted-foreground">Total</div>
                           <div className="text-lg font-semibold text-primary">
-                            ${(proposal.amount * proposal.price).toFixed(2)}
+                            ${(proposal.amount / 100 * proposal.price).toFixed(2)}
                           </div>
                         </div>
                       </div>
@@ -225,7 +225,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                       {isReady && (
                         <>
                           <div className="mb-3 p-2 bg-amber-950/20 border border-amber-900 rounded text-xs text-amber-400">
-                            ⚠️ You need to lock {proposal.amount} ZEC in HTLC to proceed with settlement
+                            ⚠️ You need to lock {(proposal.amount / 100).toFixed(2)} ZEC in HTLC to proceed with settlement
                           </div>
                           <Button
                             size="sm"
@@ -241,7 +241,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                             ) : (
                               <>
                                 <Lock className="h-4 w-4 mr-1" />
-                                Lock {proposal.amount} ZEC
+                                Lock {(proposal.amount / 100).toFixed(2)} ZEC
                               </>
                             )}
                           </Button>

@@ -182,7 +182,7 @@ export function SettlementQueue() {
                 <div>
                   <div className="text-xs text-muted-foreground">Amount</div>
                   <div className="text-base font-semibold">
-                    {proposal.amount} ZEC
+                    {(proposal.amount / 100).toFixed(2)} ZEC
                   </div>
                 </div>
                 <div>
@@ -194,7 +194,7 @@ export function SettlementQueue() {
                 <div>
                   <div className="text-xs text-muted-foreground">Total Value</div>
                   <div className="text-base font-semibold text-green-400">
-                    ${(proposal.amount * proposal.price).toFixed(2)}
+                    ${(proposal.amount / 100 * proposal.price).toFixed(2)}
                   </div>
                 </div>
               </div>

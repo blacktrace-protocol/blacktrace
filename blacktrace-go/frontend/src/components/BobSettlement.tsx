@@ -160,7 +160,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                 </div>
 
                 {proposals.map((proposal, idx) => {
-                  const totalUSDC = proposal.amount * proposal.price;
+                  const totalUSDC = proposal.amount / 100 * proposal.price;
 
                   return (
                     <div
@@ -183,7 +183,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                         <div>
                           <div className="text-xs text-muted-foreground">ZEC Amount</div>
                           <div className="text-lg font-semibold">
-                            {proposal.amount} ZEC
+                            {(proposal.amount / 100).toFixed(2)} ZEC
                           </div>
                         </div>
                         <div>
@@ -211,7 +211,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                       <div className="mb-3 p-3 bg-green-950/20 border border-green-900 rounded text-sm">
                         <div className="flex items-center gap-2 mb-2 text-green-400">
                           <AlertCircle className="h-4 w-4" />
-                          <span className="font-medium">Alice has locked {proposal.amount} ZEC</span>
+                          <span className="font-medium">Alice has locked {(proposal.amount / 100).toFixed(2)} ZEC</span>
                         </div>
                         <div className="text-xs text-green-400/80">
                           You can now safely lock your USDC. The atomic swap ensures you'll receive the ZEC once both sides are locked.
@@ -221,7 +221,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                       <Button
                         size="sm"
                         className="w-full"
-                        onClick={() => handleLockUSDC(proposal.id, proposal.amount, proposal.price)}
+                        onClick={() => handleLockUSDC(proposal.id, proposal.amount / 100, proposal.price)}
                         disabled={lockingProposal === proposal.id}
                       >
                         {lockingProposal === proposal.id ? (
