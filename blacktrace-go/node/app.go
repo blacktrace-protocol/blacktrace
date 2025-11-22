@@ -67,19 +67,11 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 	// Create auth manager with 24-hour session expiration
 	authMgr := NewAuthManager(24 * time.Hour)
 
-	// Initialize settlement manager (Phase 3: NATS integration)
-	settlementMgr, err := NewSettlementManager()
-	if err != nil {
-		log.Printf("Warning: Failed to initialize settlement manager: %v", err)
-		// Continue without settlement service
-		settlementMgr = &SettlementManager{enabled: false}
-	}
-
 	app := &BlackTraceApp{
 		network:       nm,
 		authMgr:       authMgr,
 		cryptoMgr:     nil, // Initialized on first user login
-		settlementMgr: settlementMgr,
+		settlementMgr: nil, // Initialized below after app is created
 		orders:        make(map[OrderID]*OrderAnnouncement),
 		orderDetails:  make(map[OrderID]*OrderDetails),
 		proposals:     make(map[ProposalID]*Proposal),
@@ -87,6 +79,15 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 		appCommandCh:  make(chan AppCommand, 100),
 		shutdownCh:    make(chan struct{}),
 	}
+
+	// Initialize settlement manager after app is created (needs app reference for subscriptions)
+	settlementMgr, err := NewSettlementManager(app)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize settlement manager: %v", err)
+		// Continue without settlement service
+		settlementMgr = &SettlementManager{enabled: false, app: app}
+	}
+	app.settlementMgr = settlementMgr
 
 	return app, nil
 }

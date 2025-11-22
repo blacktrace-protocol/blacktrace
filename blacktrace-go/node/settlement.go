@@ -14,6 +14,7 @@ import (
 type SettlementManager struct {
 	nc      *nats.Conn
 	enabled bool
+	app     *BlackTraceApp // Reference to app for updating proposals
 }
 
 // SettlementRequest represents a request to initiate HTLC settlement
@@ -30,11 +31,11 @@ type SettlementRequest struct {
 }
 
 // NewSettlementManager creates a new settlement manager
-func NewSettlementManager() (*SettlementManager, error) {
+func NewSettlementManager(app *BlackTraceApp) (*SettlementManager, error) {
 	natsURL := os.Getenv("NATS_URL")
 	if natsURL == "" {
 		log.Printf("Warning: NATS_URL not set, settlement service disabled")
-		return &SettlementManager{enabled: false}, nil
+		return &SettlementManager{enabled: false, app: app}, nil
 	}
 
 	// Connect to NATS
@@ -59,10 +60,23 @@ func NewSettlementManager() (*SettlementManager, error) {
 
 	log.Printf("Settlement: Connected to NATS at %s", natsURL)
 
-	return &SettlementManager{
+	sm := &SettlementManager{
 		nc:      nc,
 		enabled: true,
-	}, nil
+		app:     app,
+	}
+
+	// Subscribe to settlement status updates
+	if err := sm.subscribeToStatusUpdates(); err != nil {
+		log.Printf("Warning: Failed to subscribe to settlement status updates: %v", err)
+	}
+
+	// Subscribe to secret reveals
+	if err := sm.subscribeToSecretReveals(); err != nil {
+		log.Printf("Warning: Failed to subscribe to settlement secrets: %v", err)
+	}
+
+	return sm, nil
 }
 
 // PublishSettlementRequest publishes a settlement request to NATS
@@ -121,6 +135,66 @@ func (sm *SettlementManager) PublishSettlementStatusUpdate(update map[string]int
 		proposalID, status, action)
 
 	return nil
+}
+
+// subscribeToStatusUpdates subscribes to settlement status updates from the settlement service
+func (sm *SettlementManager) subscribeToStatusUpdates() error {
+	_, err := sm.nc.Subscribe("settlement.status.*", func(msg *nats.Msg) {
+		var update map[string]interface{}
+		if err := json.Unmarshal(msg.Data, &update); err != nil {
+			log.Printf("Settlement: Error parsing status update: %v", err)
+			return
+		}
+
+		proposalID, ok := update["proposal_id"].(string)
+		if !ok {
+			return
+		}
+
+		status, _ := update["settlement_status"].(string)
+		action, _ := update["action"].(string)
+
+		log.Printf("Settlement: Received status update for %s: status=%s, action=%s", proposalID, status, action)
+
+		// Update proposal in app's memory
+		sm.app.proposalsMux.Lock()
+		defer sm.app.proposalsMux.Unlock()
+
+		if proposal, exists := sm.app.proposals[ProposalID(proposalID)]; exists {
+			settlementStatus := SettlementStatus(status)
+			proposal.SettlementStatus = &settlementStatus
+			log.Printf("Settlement: Updated proposal %s settlement status to %s", proposalID, status)
+		}
+	})
+
+	if err == nil {
+		log.Printf("Settlement: Subscribed to status updates (settlement.status.*)")
+	}
+	return err
+}
+
+// subscribeToSecretReveals subscribes to HTLC secret reveals from the settlement service
+func (sm *SettlementManager) subscribeToSecretReveals() error {
+	_, err := sm.nc.Subscribe("settlement.secret.*", func(msg *nats.Msg) {
+		var reveal map[string]interface{}
+		if err := json.Unmarshal(msg.Data, &reveal); err != nil {
+			log.Printf("Settlement: Error parsing secret reveal: %v", err)
+			return
+		}
+
+		proposalID, _ := reveal["proposal_id"].(string)
+		secret, _ := reveal["secret"].(string)
+		hash, _ := reveal["hash"].(string)
+
+		log.Printf("Settlement: 🔓 Received secret reveal for %s (hash: %s)", proposalID, hash)
+		log.Printf("Settlement: Secret (hex): %s", secret)
+		log.Printf("Settlement: Both assets locked - atomic swap ready!")
+	})
+
+	if err == nil {
+		log.Printf("Settlement: Subscribed to secret reveals (settlement.secret.*)")
+	}
+	return err
 }
 
 // Close closes the NATS connection
