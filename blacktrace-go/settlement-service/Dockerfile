@@ -11,7 +11,7 @@ COPY go.mod go.sum* ./
 RUN go mod download
 
 # Copy source code
-COPY *.go ./
+COPY . .
 
 # Build for release
 RUN CGO_ENABLED=0 GOOS=linux go build -o settlement-service .

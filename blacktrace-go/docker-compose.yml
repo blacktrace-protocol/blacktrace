@@ -93,7 +93,23 @@ services:
     profiles:
       - test
 
-  # Rust settlement service - Coordinates atomic swaps
+  # Zcash regtest node for development/demo
+  zcash-regtest:
+    image: electriccoinco/zcashd:v5.10.0
+    container_name: zcash-regtest
+    ports:
+      - "18232:18232"
+    networks:
+      - blacktrace-net
+    volumes:
+      - zcash-regtest-data:/srv/zcashd/.zcash
+      - ./zcash.conf:/srv/zcashd/.zcash/zcash.conf
+    cap_add:
+      - SYS_NICE
+      - SYS_RESOURCE
+    restart: unless-stopped
+
+  # Go settlement service - Coordinates atomic swaps
   settlement-service:
     build:
       context: ./settlement-service
@@ -101,12 +117,17 @@ services:
     container_name: blacktrace-settlement
     environment:
       - NATS_URL=nats://nats:4222
-      - RUST_LOG=settlement_service=info
+      - ZCASH_RPC_URL=http://zcash-regtest:18232
+      - ZCASH_RPC_USER=blacktrace
+      - ZCASH_RPC_PASSWORD=regtest123
+      - ZCASH_NETWORK=regtest
     networks:
       - blacktrace-net
     depends_on:
       nats:
         condition: service_healthy
+      zcash-regtest:
+        condition: service_started
     restart: unless-stopped
 
   # React frontend - Split-screen UI for Alice and Bob
@@ -138,3 +159,4 @@ volumes:
   maker-data:
   taker-data:
   shared-identities:
+  zcash-regtest-data:
