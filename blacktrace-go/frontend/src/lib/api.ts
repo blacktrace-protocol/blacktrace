@@ -150,6 +150,7 @@ export class BlackTraceAPI {
   async lockZEC(proposalId: string): Promise<{ status: string; settlement_status: string }> {
     const response = await this.client.post<{ status: string; settlement_status: string }>('/settlement/lock-zec', {
       proposal_id: proposalId,
+      session_id: this.token, // Include session for user authentication and wallet lookup
     });
     return response.data;
   }

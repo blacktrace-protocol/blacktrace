@@ -12,10 +12,14 @@ import (
 	"time"
 )
 
+// DataDir is the default data directory for storing user identities and wallets
+const DataDir = "/root/.blacktrace"
+
 // BlackTraceApp is the main application
 type BlackTraceApp struct {
 	network      *NetworkManager
 	authMgr      *AuthManager
+	walletMgr    *WalletManager // Manages user Zcash wallets
 	cryptoMgr    *CryptoManager // Initialized when first user logs in (one node = one user)
 	settlementMgr *SettlementManager // Phase 3: NATS-based settlement coordination
 	orders       map[OrderID]*OrderAnnouncement
@@ -67,9 +71,17 @@ func NewBlackTraceApp(port int) (*BlackTraceApp, error) {
 	// Create auth manager with 24-hour session expiration
 	authMgr := NewAuthManager(24 * time.Hour)
 
+	// Create wallet manager
+	walletMgr, err := NewWalletManager(DataDir)
+	if err != nil {
+		log.Printf("Warning: Failed to initialize wallet manager: %v", err)
+		return nil, fmt.Errorf("failed to create wallet manager: %w", err)
+	}
+
 	app := &BlackTraceApp{
 		network:       nm,
 		authMgr:       authMgr,
+		walletMgr:     walletMgr,
 		cryptoMgr:     nil, // Initialized on first user login
 		settlementMgr: nil, // Initialized below after app is created
 		orders:        make(map[OrderID]*OrderAnnouncement),
@@ -1029,7 +1041,7 @@ func (app *BlackTraceApp) RejectProposal(proposalID ProposalID) error {
 }
 
 // LockZEC initiates settlement by locking ZEC (Alice's action)
-func (app *BlackTraceApp) LockZEC(proposalID ProposalID) (SettlementStatus, error) {
+func (app *BlackTraceApp) LockZEC(proposalID ProposalID, username string, zcashAddress string) (SettlementStatus, error) {
 	app.proposalsMux.Lock()
 	proposal, ok := app.proposals[proposalID]
 	if !ok {
@@ -1048,7 +1060,7 @@ func (app *BlackTraceApp) LockZEC(proposalID ProposalID) (SettlementStatus, erro
 	proposal.SettlementStatus = &status
 	app.proposalsMux.Unlock()
 
-	log.Printf("Settlement: Alice locked %d ZEC for proposal %s", proposal.Amount, proposalID)
+	log.Printf("Settlement: %s locked %d ZEC for proposal %s from address %s", username, proposal.Amount, proposalID, zcashAddress)
 
 	// Publish settlement status update to NATS
 	if app.settlementMgr.IsEnabled() {
@@ -1058,13 +1070,15 @@ func (app *BlackTraceApp) LockZEC(proposalID ProposalID) (SettlementStatus, erro
 			"settlement_status": string(status),
 			"action":            "alice_lock_zec",
 			"amount":            proposal.Amount,
+			"username":          username,
+			"zcash_address":     zcashAddress,
 			"timestamp":         time.Now(),
 		}
 
 		if err := app.settlementMgr.PublishSettlementStatusUpdate(statusUpdate); err != nil {
 			log.Printf("Warning: Failed to publish settlement status update: %v", err)
 		} else {
-			log.Printf("Settlement: Status update published to NATS (alice_locked)")
+			log.Printf("Settlement: Status update published to NATS (alice_locked) with user's Zcash address")
 		}
 	}
 
@@ -1156,4 +1170,9 @@ func (app *BlackTraceApp) Shutdown() {
 // GetAuthManager returns the authentication manager
 func (app *BlackTraceApp) GetAuthManager() *AuthManager {
 	return app.authMgr
+}
+
+// GetWalletManager returns the wallet manager
+func (app *BlackTraceApp) GetWalletManager() *WalletManager {
+	return app.walletMgr
 }

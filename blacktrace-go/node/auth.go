@@ -73,6 +73,27 @@ func (am *AuthManager) Register(username, password string) error {
 	return nil
 }
 
+// DeleteUser removes a user identity (used for rollback during registration failures)
+func (am *AuthManager) DeleteUser(username string) error {
+	// Delete from disk
+	if err := DeleteIdentity(username); err != nil {
+		return fmt.Errorf("failed to delete identity: %w", err)
+	}
+
+	// Remove any active sessions for this user
+	am.mu.Lock()
+	defer am.mu.Unlock()
+
+	for sessionID, session := range am.sessions {
+		if session.Username == username {
+			delete(am.sessions, sessionID)
+		}
+	}
+
+	log.Printf("Auth: Deleted user: %s", username)
+	return nil
+}
+
 // Login authenticates a user and creates a session
 func (am *AuthManager) Login(username, password string) (string, error) {
 	// Load and decrypt identity

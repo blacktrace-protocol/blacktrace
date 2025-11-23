@@ -320,3 +320,9 @@ func (c *Client) GetAddressBalance(address string) (float64, error) {
 
 	return balance, nil
 }
+
+// SetMockTime sets the mock time for regtest (requires -mocktime flag)
+func (c *Client) SetMockTime(timestamp int64) error {
+	_, err := c.call("setmocktime", timestamp)
+	return err
+}

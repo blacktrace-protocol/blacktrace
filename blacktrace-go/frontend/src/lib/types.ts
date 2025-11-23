@@ -2,6 +2,7 @@ export interface User {
   username: string;
   token: string;
   peerID: string;
+  zcash_address?: string;
 }
 
 export interface Order {

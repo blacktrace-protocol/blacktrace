@@ -38,6 +38,8 @@ type SettlementStatusUpdate struct {
 	Action           string    `json:"action"`
 	Amount           uint64    `json:"amount"`
 	AmountUSDC       uint64    `json:"amount_usdc"`
+	ZcashAddress     string    `json:"zcash_address,omitempty"`     // User's personal Zcash address
+	Username         string    `json:"username,omitempty"`          // Username for wallet lookup
 	Timestamp        time.Time `json:"timestamp"`
 }
 
@@ -98,8 +100,8 @@ func NewSettlementService(natsURL, zcashRPCURL, zcashUser, zcashPassword string)
 }
 
 // createZcashHTLC creates a real HTLC on the Zcash blockchain
-func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC uint64) error {
-	log.Printf("Creating Zcash HTLC for %d ZEC...", amountZEC)
+func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC uint64, userZcashAddress string) error {
+	log.Printf("Creating Zcash HTLC for %d ZEC from user address %s...", amountZEC, userZcashAddress)
 
 	// Decode secret hash from hex
 	secretHash, err := hex.DecodeString(state.HashHex)
@@ -153,11 +155,11 @@ func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC ui
 	log.Printf("HTLC P2SH Address: %s", p2shAddress)
 	log.Printf("Locktime: %d (block height)", locktime)
 
-	// Create and broadcast transaction locking ZEC to HTLC
+	// Create and broadcast transaction locking ZEC to HTLC from user's personal wallet
 	amountFloat := float64(amountZEC) // Amount is already in ZEC units
-	txid, err := s.zcashClient.CreateAndBroadcastHTLCLock(s.aliceAddress, p2shAddress, amountFloat)
+	txid, err := s.zcashClient.CreateAndBroadcastHTLCLock(userZcashAddress, p2shAddress, amountFloat)
 	if err != nil {
-		return fmt.Errorf("failed to create HTLC lock transaction: %w", err)
+		return fmt.Errorf("failed to create HTLC lock transaction from %s: %w", userZcashAddress, err)
 	}
 
 	state.HTLCLockTxID = txid
@@ -234,12 +236,16 @@ func (s *SettlementService) bootstrapZcash() error {
 	if balance < 2200 {
 		// Each block gives 10 ZEC, need 220+ blocks
 		blocksNeeded := 250 // Mine 250 blocks (2500 ZEC)
-		log.Printf("\n⛏️  Mining %d blocks to build up balance...", blocksNeeded)
-		s.zcashClient.Generate(blocksNeeded)
+		log.Printf("\n⛏️  Mining %d blocks slowly to build up balance (prevents median-time issues)...", blocksNeeded)
+		if err := s.mineBlocksSlowly(blocksNeeded, 3*time.Second); err != nil {
+			log.Printf("Warning: Failed to mine balance blocks: %v", err)
+		}
 
 		// Wait for blocks to mature (need 100 confirmations)
-		log.Printf("⛏️  Mining 100 more blocks to mature coinbase...")
-		s.zcashClient.Generate(100)
+		log.Printf("⛏️  Mining 100 more blocks slowly to mature coinbase...")
+		if err := s.mineBlocksSlowly(100, 3*time.Second); err != nil {
+			log.Printf("Warning: Failed to mine maturity blocks: %v", err)
+		}
 
 		// Get updated balance
 		balance, _ = s.zcashClient.GetBalance()
@@ -387,7 +393,15 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 	case "alice_lock_zec":
 		// Create HTLC on Zcash blockchain (amount is in cents, convert to ZEC)
 		amountZEC := update.Amount / 100 // Convert from cents to ZEC
-		err := s.createZcashHTLC(state, amountZEC)
+
+		// Use user's personal Zcash address if provided, otherwise fall back to admin address
+		zcashAddress := update.ZcashAddress
+		if zcashAddress == "" {
+			zcashAddress = s.aliceAddress
+			log.Printf("Warning: No user Zcash address provided, using admin address: %s", zcashAddress)
+		}
+
+		err := s.createZcashHTLC(state, amountZEC, zcashAddress)
 		if err != nil {
 			log.Printf("Error creating Zcash HTLC: %v", err)
 			s.mu.Unlock()
@@ -471,9 +485,65 @@ func (s *SettlementService) Start() error {
 
 	log.Println("✓ Subscribed to settlement requests")
 	log.Println("✓ Subscribed to settlement status updates")
+
+	// Start background block miner for regtest (mines 1 block every 60 seconds)
+	go s.backgroundBlockMiner()
+
 	log.Println("\n🦀 Settlement Service Ready - Waiting for settlement requests...")
 
 	return nil
+}
+
+// mineBlocksSlowly mines blocks fast using mocktime with proper timestamp spacing
+// This prevents median-time-past issues while keeping bootstrap fast
+func (s *SettlementService) mineBlocksSlowly(numBlocks int, delayBetweenBlocks time.Duration) error {
+	// Get current Unix timestamp
+	startTime := time.Now().Unix()
+
+	// Mine blocks with mocktime to control timestamps
+	for i := 0; i < numBlocks; i++ {
+		// Set mocktime to (startTime + i * delayBetweenBlocks)
+		mockTime := startTime + int64(i)*int64(delayBetweenBlocks.Seconds())
+		if err := s.zcashClient.SetMockTime(mockTime); err != nil {
+			log.Printf("Warning: Failed to set mocktime: %v", err)
+		}
+
+		_, err := s.zcashClient.Generate(1)
+		if err != nil {
+			return fmt.Errorf("failed to mine block %d/%d: %w", i+1, numBlocks, err)
+		}
+
+		// Log progress every 50 blocks to avoid spam
+		if (i+1)%50 == 0 || i == numBlocks-1 {
+			log.Printf("  ⛏️  Mined %d/%d blocks", i+1, numBlocks)
+		}
+	}
+
+	// Reset mocktime to resume normal time
+	if err := s.zcashClient.SetMockTime(0); err != nil {
+		log.Printf("Warning: Failed to reset mocktime: %v", err)
+	}
+
+	return nil
+}
+
+// backgroundBlockMiner mines blocks periodically to confirm pending transactions
+func (s *SettlementService) backgroundBlockMiner() {
+	log.Println("⛏️  Background block miner started (mining every 60 seconds)")
+
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if s.zcashClient != nil {
+			_, err := s.zcashClient.Generate(1)
+			if err != nil {
+				log.Printf("⚠️  Background mining failed: %v", err)
+				continue
+			}
+			log.Println("⛏️  Background miner: mined 1 block")
+		}
+	}
 }
 
 // Close gracefully shuts down the service
@@ -539,10 +609,147 @@ func (s *SettlementService) handleBobBalance(w http.ResponseWriter, r *http.Requ
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleCreateAddress creates a new Zcash address
+func (s *SettlementService) handleCreateAddress(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Create new Zcash address
+	address, err := s.zcashClient.GetNewAddress()
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to create address: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✓ Created new Zcash address: %s", address)
+
+	response := map[string]interface{}{
+		"address": address,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleFundAddress sends ZEC to a specified address
+func (s *SettlementService) handleFundAddress(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Address string  `json:"address"`
+		Amount  float64 `json:"amount"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Address == "" {
+		http.Error(w, "Address is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Amount <= 0 {
+		http.Error(w, "Amount must be greater than 0", http.StatusBadRequest)
+		return
+	}
+
+	// Send ZEC to address
+	txid, err := s.zcashClient.SendToAddress(req.Address, req.Amount)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to send ZEC: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✓ Sent %.8f ZEC to %s (txid: %s)", req.Amount, req.Address, txid[:16]+"...")
+	log.Printf("⏳ Transaction will be confirmed by background miner within 60 seconds")
+
+	// Get updated balance (will show unconfirmed balance initially)
+	balance, _ := s.zcashClient.GetAddressBalance(req.Address)
+
+	// Return 0 blocks since we're not mining immediately
+	var blocks []string
+
+	response := map[string]interface{}{
+		"success": true,
+		"txid":    txid,
+		"address": req.Address,
+		"amount":  req.Amount,
+		"balance": balance,
+		"blocks":  len(blocks),
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleAddressBalance returns the balance for any address
+func (s *SettlementService) handleAddressBalance(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Get address from query parameter
+	address := r.URL.Query().Get("address")
+	if address == "" {
+		http.Error(w, "Address parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	balance, err := s.zcashClient.GetAddressBalance(address)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"address": address,
+		"balance": balance,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // StartHTTPServer starts the HTTP API server
 func (s *SettlementService) StartHTTPServer(port string) {
 	http.HandleFunc("/api/alice/balance", s.handleAliceBalance)
 	http.HandleFunc("/api/bob/balance", s.handleBobBalance)
+	http.HandleFunc("/api/create-address", s.handleCreateAddress)
+	http.HandleFunc("/api/fund-address", s.handleFundAddress)
+	http.HandleFunc("/api/address-balance", s.handleAddressBalance)
 
 	log.Printf("✓ Starting HTTP API server on :%s", port)
 	go func() {

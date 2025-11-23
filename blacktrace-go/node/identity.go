@@ -254,6 +254,21 @@ func IdentityExists(username string) (bool, error) {
 	return false, err
 }
 
+// DeleteIdentity removes a user identity from disk
+func DeleteIdentity(username string) error {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("failed to get home directory: %w", err)
+	}
+
+	identityFile := filepath.Join(homeDir, identityDir, username+".json")
+	if err := os.Remove(identityFile); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to delete identity file: %w", err)
+	}
+
+	return nil
+}
+
 // UserPublicKeyInfo contains public information about a user
 type UserPublicKeyInfo struct {
 	Username   string    `json:"username"`

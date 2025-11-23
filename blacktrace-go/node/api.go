@@ -1,6 +1,7 @@
 package node
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -60,6 +61,10 @@ func (api *APIServer) Start() error {
 	mux.HandleFunc("/auth/login", api.handleAuthLogin)
 	mux.HandleFunc("/auth/logout", api.handleAuthLogout)
 	mux.HandleFunc("/auth/whoami", api.handleAuthWhoami)
+
+	// Wallet endpoints
+	mux.HandleFunc("/wallet/info", api.handleWalletInfo)
+	mux.HandleFunc("/wallet/fund", api.handleFundWallet)
 
 	// User endpoints
 	mux.HandleFunc("/users", api.handleListUsers)
@@ -179,6 +184,7 @@ type RejectProposalResponse struct {
 
 type LockZECRequest struct {
 	ProposalID ProposalID `json:"proposal_id"`
+	SessionID  string     `json:"session_id"`
 }
 
 type LockZECResponse struct {
@@ -223,8 +229,9 @@ type AuthRegisterRequest struct {
 }
 
 type AuthRegisterResponse struct {
-	Username string `json:"username"`
-	Status   string `json:"status"`
+	Username     string `json:"username"`
+	Status       string `json:"status"`
+	ZcashAddress string `json:"zcash_address"`
 }
 
 type AuthLoginRequest struct {
@@ -297,16 +304,49 @@ func (api *APIServer) handleAuthRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Register user
+	// Step 1: Create Zcash address BEFORE registering user
+	createAddrResp, err := http.Post("http://settlement-service:8090/api/create-address", "application/json", nil)
+	if err != nil {
+		api.sendError(w, fmt.Sprintf("Failed to create Zcash address: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer createAddrResp.Body.Close()
+
+	if createAddrResp.StatusCode != http.StatusOK {
+		api.sendError(w, "Failed to create Zcash address", http.StatusInternalServerError)
+		return
+	}
+
+	var addrResponse struct {
+		Address string `json:"address"`
+	}
+	if err := json.NewDecoder(createAddrResp.Body).Decode(&addrResponse); err != nil {
+		api.sendError(w, "Failed to parse address response", http.StatusInternalServerError)
+		return
+	}
+
+	// Step 2: Register user in auth database
 	authMgr := api.app.GetAuthManager()
 	if err := authMgr.Register(req.Username, req.Password); err != nil {
 		api.sendError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
+	// Step 3: Create wallet mapping (if this fails, rollback user registration)
+	walletMgr := api.app.GetWalletManager()
+	if err := walletMgr.CreateWallet(req.Username, addrResponse.Address); err != nil {
+		// Rollback: delete the user we just created
+		authMgr.DeleteUser(req.Username)
+		api.sendError(w, fmt.Sprintf("Failed to create wallet: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Auth: Created Zcash wallet for %s: %s", req.Username, addrResponse.Address)
+
 	api.sendJSON(w, AuthRegisterResponse{
 		Username: req.Username,
 		Status:   "registered",
+		ZcashAddress: addrResponse.Address,
 	})
 }
 
@@ -410,6 +450,159 @@ func (api *APIServer) handleAuthWhoami(w http.ResponseWriter, r *http.Request) {
 		SessionID:  session.SessionID,
 		LoggedInAt: session.LoggedInAt.Format(time.RFC3339),
 		ExpiresAt:  session.ExpiresAt.Format(time.RFC3339),
+	})
+}
+
+// Wallet handlers
+
+func (api *APIServer) handleWalletInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Get username from query parameter
+	username := r.URL.Query().Get("username")
+	if username == "" {
+		api.sendError(w, "Username parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get wallet info
+	walletMgr := api.app.GetWalletManager()
+	wallet, err := walletMgr.GetWallet(username)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Get current balance from settlement service
+	balanceResp, err := http.Get(fmt.Sprintf("http://settlement-service:8090/api/address-balance?address=%s", wallet.ZcashAddress))
+	if err != nil {
+		api.sendError(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer balanceResp.Body.Close()
+
+	var balanceData struct {
+		Address string  `json:"address"`
+		Balance float64 `json:"balance"`
+	}
+	if err := json.NewDecoder(balanceResp.Body).Decode(&balanceData); err != nil {
+		api.sendError(w, "Failed to parse balance response", http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"username":      wallet.Username,
+		"zcash_address": wallet.ZcashAddress,
+		"balance":       balanceData.Balance,
+		"total_funded":  wallet.TotalFunded,
+		"funding_count": wallet.FundingCount,
+	}
+
+	api.sendJSON(w, response)
+}
+
+func (api *APIServer) handleFundWallet(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Username string `json:"username"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Username == "" {
+		api.sendError(w, "Username is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get wallet info
+	walletMgr := api.app.GetWalletManager()
+	wallet, err := walletMgr.GetWallet(req.Username)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	// Check if user can request more funding (100 ZEC total limit, 10 ZEC per request)
+	const fundAmount = 10.0
+	canFund, remaining, err := walletMgr.CanRequestFunding(req.Username, fundAmount)
+	if err != nil {
+		api.sendError(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if !canFund {
+		if remaining <= 0 {
+			api.sendError(w, "Funding limit reached. You have already received 100 ZEC.", http.StatusBadRequest)
+			return
+		}
+		api.sendError(w, fmt.Sprintf("Requested amount exceeds limit. You can only request %.2f ZEC more.", remaining), http.StatusBadRequest)
+		return
+	}
+
+	// Call settlement service to fund the address
+	fundReqBody, _ := json.Marshal(map[string]interface{}{
+		"address": wallet.ZcashAddress,
+		"amount":  fundAmount,
+	})
+
+	fundResp, err := http.Post("http://settlement-service:8090/api/fund-address", "application/json", bytes.NewReader(fundReqBody))
+	if err != nil {
+		api.sendError(w, fmt.Sprintf("Failed to fund wallet: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer fundResp.Body.Close()
+
+	if fundResp.StatusCode != http.StatusOK {
+		var errResp map[string]interface{}
+		json.NewDecoder(fundResp.Body).Decode(&errResp)
+		api.sendError(w, fmt.Sprintf("Failed to fund wallet: %v", errResp), http.StatusInternalServerError)
+		return
+	}
+
+	var fundResult struct {
+		Success bool    `json:"success"`
+		Txid    string  `json:"txid"`
+		Address string  `json:"address"`
+		Amount  float64 `json:"amount"`
+		Balance float64 `json:"balance"`
+		Blocks  int     `json:"blocks"`
+	}
+
+	if err := json.NewDecoder(fundResp.Body).Decode(&fundResult); err != nil {
+		api.sendError(w, "Failed to parse funding response", http.StatusInternalServerError)
+		return
+	}
+
+	// Record funding (transaction sent successfully)
+	// Note: Confirmation happens via background miner within 60 seconds
+	if err := walletMgr.RecordFunding(req.Username, fundAmount); err != nil {
+		log.Printf("Warning: Failed to record funding: %v", err)
+	}
+
+	confirmationStatus := "confirmed"
+	if fundResult.Blocks == 0 {
+		confirmationStatus = "pending (will confirm within 60 seconds)"
+	}
+
+	log.Printf("Wallet: Funded %s with %.2f ZEC (txid: %s, status: %s)", req.Username, fundAmount, fundResult.Txid[:16]+"...", confirmationStatus)
+
+	api.sendJSON(w, map[string]interface{}{
+		"success":       true,
+		"amount":        fundResult.Amount,
+		"new_balance":   fundResult.Balance,
+		"txid":          fundResult.Txid,
+		"total_funded":  wallet.TotalFunded + fundAmount,
+		"funding_count": wallet.FundingCount + 1,
 	})
 }
 
@@ -659,8 +852,29 @@ func (api *APIServer) handleLockZEC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("handleLockZEC: Received request with ProposalID=%s, SessionID=%s", req.ProposalID, req.SessionID)
+
+	// Get username from session
+	authMgr := api.app.GetAuthManager()
+	session, err := authMgr.GetSession(req.SessionID)
+	if err != nil {
+		log.Printf("handleLockZEC: GetSession failed for SessionID=%s: %v", req.SessionID, err)
+		api.sendError(w, "Authentication required: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+	log.Printf("handleLockZEC: Session found for user=%s", session.Username)
+	username := session.Username
+
+	// Get user's Zcash wallet address
+	walletMgr := api.app.GetWalletManager()
+	wallet, err := walletMgr.GetWallet(username)
+	if err != nil {
+		api.sendError(w, "Failed to get wallet for user: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	// Lock ZEC for the proposal (Alice's action)
-	settlementStatus, err := api.app.LockZEC(req.ProposalID)
+	settlementStatus, err := api.app.LockZEC(req.ProposalID, username, wallet.ZcashAddress)
 	if err != nil {
 		api.sendError(w, err.Error(), http.StatusBadRequest)
 		return
