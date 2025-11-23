@@ -76,6 +76,7 @@ func (api *APIServer) Start() error {
 	// Settlement endpoints
 	mux.HandleFunc("/settlement/lock-zec", api.handleLockZEC)
 	mux.HandleFunc("/settlement/lock-usdc", api.handleLockUSDC)
+	mux.HandleFunc("/settlement/update-status", api.handleUpdateSettlementStatus)
 
 	// Network endpoints
 	mux.HandleFunc("/peers", api.handlePeers)
@@ -693,6 +694,47 @@ func (api *APIServer) handleLockUSDC(w http.ResponseWriter, r *http.Request) {
 	api.sendJSON(w, LockUSDCResponse{
 		Status:           "usdc_locked",
 		SettlementStatus: string(settlementStatus),
+	})
+}
+
+// UpdateSettlementStatusRequest is the request to update proposal settlement status
+type UpdateSettlementStatusRequest struct {
+	ProposalID       string `json:"proposal_id"`
+	SettlementStatus string `json:"settlement_status"`
+}
+
+func (api *APIServer) handleUpdateSettlementStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req UpdateSettlementStatusRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	// Update the proposal settlement status
+	api.app.proposalsMux.Lock()
+	defer api.app.proposalsMux.Unlock()
+
+	proposal, exists := api.app.proposals[ProposalID(req.ProposalID)]
+	if !exists {
+		api.sendError(w, fmt.Sprintf("Proposal not found: %s", req.ProposalID), http.StatusNotFound)
+		return
+	}
+
+	// Update settlement status
+	newStatus := SettlementStatus(req.SettlementStatus)
+	proposal.SettlementStatus = &newStatus
+
+	log.Printf("✅ [ADMIN] Updated proposal %s settlement status to: %s", req.ProposalID, req.SettlementStatus)
+
+	api.sendJSON(w, map[string]interface{}{
+		"success":           true,
+		"proposal_id":       req.ProposalID,
+		"settlement_status": req.SettlementStatus,
 	})
 }
 
