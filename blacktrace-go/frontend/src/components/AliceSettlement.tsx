@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { aliceAPI } from '../lib/api';
-import { Lock, RefreshCw, Clock, CheckCircle } from 'lucide-react';
+import { Lock, RefreshCw, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 
 interface AliceSettlementProps {
@@ -15,6 +15,19 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lockingProposal, setLockingProposal] = useState<string | null>(null);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
+
+  const fetchWalletBalance = async () => {
+    try {
+      const response = await fetch('http://localhost:8090/api/alice/balance');
+      if (response.ok) {
+        const data = await response.json();
+        setWalletBalance(data.balance);
+      }
+    } catch (err) {
+      console.error('Failed to fetch wallet balance:', err);
+    }
+  };
 
   const fetchSettlementProposals = async () => {
     try {
@@ -69,15 +82,26 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
 
   useEffect(() => {
     fetchSettlementProposals();
+    fetchWalletBalance();
     // Auto-refresh every 5 seconds
-    const interval = setInterval(fetchSettlementProposals, 5000);
+    const interval = setInterval(() => {
+      fetchSettlementProposals();
+      fetchWalletBalance();
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleLockZEC = async (proposalId: string) => {
+  const handleLockZEC = async (proposalId: string, amountZEC: number) => {
     try {
       setLockingProposal(proposalId);
       setError('');
+
+      // Check if wallet has sufficient balance
+      if (walletBalance < amountZEC) {
+        setError(`Insufficient funds: You have ${walletBalance.toFixed(8)} ZEC but need ${amountZEC.toFixed(2)} ZEC. Please wait for your wallet balance to confirm or add more funds.`);
+        setLockingProposal(null);
+        return;
+      }
 
       // TODO: Integrate with real Zcash wallet
       // This is a mock wallet interaction
@@ -87,6 +111,8 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       console.log('  3. Submit signed transaction to Zcash network');
       console.log('  4. Wait for confirmation');
       console.log(`  Proposal ID: ${proposalId}`);
+      console.log(`  Amount: ${amountZEC.toFixed(2)} ZEC`);
+      console.log(`  Wallet Balance: ${walletBalance.toFixed(8)} ZEC`);
 
       // Simulate wallet popup and transaction signing
       await new Promise(resolve => setTimeout(resolve, 1500));
@@ -99,6 +125,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
 
       // Refresh proposals to see updated status
       fetchSettlementProposals();
+      fetchWalletBalance();
     } catch (err: any) {
       setError(err.response?.data?.error || err.message || 'Failed to lock ZEC');
     } finally {
@@ -123,8 +150,18 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       </CardHeader>
       <CardContent>
         {error && (
-          <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2 mb-4">
-            {error}
+          <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2 mb-4 flex items-start gap-2">
+            <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        {totalProposals > 0 && (
+          <div className="mb-4 p-3 bg-blue-950/20 border border-blue-900 rounded-md">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-blue-400">Available Wallet Balance</div>
+              <div className="text-lg font-bold text-blue-400">{walletBalance.toFixed(8)} ZEC</div>
+            </div>
           </div>
         )}
 
@@ -230,7 +267,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                           <Button
                             size="sm"
                             className="w-full"
-                            onClick={() => handleLockZEC(proposal.id)}
+                            onClick={() => handleLockZEC(proposal.id, proposal.amount / 100)}
                             disabled={lockingProposal === proposal.id}
                           >
                             {lockingProposal === proposal.id ? (
