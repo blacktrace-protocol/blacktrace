@@ -115,6 +115,8 @@ services:
       context: ./settlement-service
       dockerfile: Dockerfile
     container_name: blacktrace-settlement
+    ports:
+      - "8090:8090"
     environment:
       - NATS_URL=nats://nats:4222
       - ZCASH_RPC_URL=http://zcash-regtest:18232

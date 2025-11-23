@@ -10,6 +10,7 @@ import { MyProposals } from './components/MyProposals';
 import { AliceSettlement } from './components/AliceSettlement';
 import { BobSettlement } from './components/BobSettlement';
 import { SettlementQueue } from './components/SettlementQueue';
+import { WalletBalance } from './components/WalletBalance';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Lock, Shield, LogOut } from 'lucide-react';
 import { useState } from 'react';
@@ -88,8 +89,9 @@ function App() {
             {!aliceUser ? (
               <LoginPanel side="alice" title="Alice Login" />
             ) : (
-              <Tabs defaultValue="create-order" className="w-full">
-                <TabsList className="w-full grid grid-cols-4">
+              <Tabs defaultValue="wallet" className="w-full">
+                <TabsList className="w-full grid grid-cols-5">
+                  <TabsTrigger value="wallet">Wallet</TabsTrigger>
                   <TabsTrigger value="create-order">Create Order</TabsTrigger>
                   <TabsTrigger value="my-orders">
                     My Orders {aliceOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceOrdersCount}</span>}
@@ -101,6 +103,9 @@ function App() {
                     Settlement {aliceSettlementCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceSettlementCount}</span>}
                   </TabsTrigger>
                 </TabsList>
+                <TabsContent value="wallet">
+                  <WalletBalance user="alice" />
+                </TabsContent>
                 <TabsContent value="create-order">
                   <CreateOrderForm />
                 </TabsContent>
@@ -161,8 +166,9 @@ function App() {
                 }}
               />
             ) : (
-              <Tabs defaultValue="available-orders" className="w-full">
-                <TabsList className="w-full grid grid-cols-3">
+              <Tabs defaultValue="wallet" className="w-full">
+                <TabsList className="w-full grid grid-cols-4">
+                  <TabsTrigger value="wallet">Wallet</TabsTrigger>
                   <TabsTrigger value="available-orders">
                     Orders {bobOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobOrdersCount}</span>}
                   </TabsTrigger>
@@ -173,6 +179,9 @@ function App() {
                     Settlement {bobSettlementCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobSettlementCount}</span>}
                   </TabsTrigger>
                 </TabsList>
+                <TabsContent value="wallet">
+                  <WalletBalance user="bob" />
+                </TabsContent>
                 <TabsContent value="available-orders">
                   <OrdersList onSelectOrder={setSelectedOrder} onCountChange={setBobOrdersCount} />
                 </TabsContent>

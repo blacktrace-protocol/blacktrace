@@ -304,3 +304,19 @@ func (c *Client) GetInfo() (map[string]interface{}, error) {
 
 	return info, nil
 }
+
+// GetAddressBalance returns the balance for a specific address
+func (c *Client) GetAddressBalance(address string) (float64, error) {
+	// Use z_getbalance with 0 confirmations to include unconfirmed
+	result, err := c.call("z_getbalance", address, 0)
+	if err != nil {
+		return 0, err
+	}
+
+	var balance float64
+	if err := json.Unmarshal(result, &balance); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal balance: %w", err)
+	}
+
+	return balance, nil
+}

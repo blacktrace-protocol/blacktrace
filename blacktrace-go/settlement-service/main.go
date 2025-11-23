@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"sync"
 	"time"
@@ -482,6 +483,75 @@ func (s *SettlementService) Close() {
 	}
 }
 
+// HTTP API handlers for wallet balance queries
+
+// handleAliceBalance returns Alice's current ZEC balance
+func (s *SettlementService) handleAliceBalance(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	balance, err := s.zcashClient.GetAddressBalance(s.aliceAddress)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"address": s.aliceAddress,
+		"balance": balance,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleBobBalance returns Bob's current ZEC balance
+func (s *SettlementService) handleBobBalance(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	balance, err := s.zcashClient.GetAddressBalance(s.bobAddress)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := map[string]interface{}{
+		"address": s.bobAddress,
+		"balance": balance,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// StartHTTPServer starts the HTTP API server
+func (s *SettlementService) StartHTTPServer(port string) {
+	http.HandleFunc("/api/alice/balance", s.handleAliceBalance)
+	http.HandleFunc("/api/bob/balance", s.handleBobBalance)
+
+	log.Printf("✓ Starting HTTP API server on :%s", port)
+	go func() {
+		if err := http.ListenAndServe(":"+port, nil); err != nil {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
+}
+
 func main() {
 	// Get configuration from environment
 	natsURL := os.Getenv("NATS_URL")
@@ -519,6 +589,9 @@ func main() {
 	if err := service.Start(); err != nil {
 		log.Fatalf("Failed to start settlement service: %v", err)
 	}
+
+	// Start HTTP API server for wallet balance queries
+	service.StartHTTPServer("8090")
 
 	// Keep the service running
 	select {}
