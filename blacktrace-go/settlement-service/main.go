@@ -339,9 +339,9 @@ func (s *SettlementService) handleSettlementRequest(msg *nats.Msg) {
 	fmt.Printf("     Maker:    %s\n", req.MakerID)
 	fmt.Printf("     Taker:    %s\n\n", req.TakerID)
 	fmt.Printf("  💰 Trade:\n")
-	fmt.Printf("     Amount:   %d ZEC\n", req.Amount)
+	fmt.Printf("     Amount:   %.2f ZEC\n", float64(req.Amount)/100.0)
 	fmt.Printf("     Price:    $%d\n", req.Price)
-	fmt.Printf("     Total:    $%d\n\n", state.AmountUSDC)
+	fmt.Printf("     Total:    $%.2f\n\n", float64(state.AmountUSDC)/100.0)
 	fmt.Printf("  🔐 HTLC Generated:\n")
 	fmt.Printf("     Secret:   32 bytes (kept private)\n")
 	fmt.Printf("     Hash:     %s\n\n", hashHex)
@@ -384,8 +384,9 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 	// Update state based on action
 	switch update.Action {
 	case "alice_lock_zec":
-		// Create HTLC on Zcash blockchain
-		err := s.createZcashHTLC(state, update.Amount)
+		// Create HTLC on Zcash blockchain (amount is in cents, convert to ZEC)
+		amountZEC := update.Amount / 100 // Convert from cents to ZEC
+		err := s.createZcashHTLC(state, amountZEC)
 		if err != nil {
 			log.Printf("Error creating Zcash HTLC: %v", err)
 			s.mu.Unlock()
@@ -401,7 +402,7 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		fmt.Printf("\n  Action:      %s\n", update.Action)
 		fmt.Printf("  Status:      %s\n\n", state.Status)
-		fmt.Printf("  🔒 Alice locked %d ZEC to HTLC\n", update.Amount)
+		fmt.Printf("  🔒 Alice locked %.2f ZEC to HTLC\n", float64(update.Amount)/100.0)
 		fmt.Printf("  📍 HTLC Address: %s\n", state.HTLCP2SHAddress)
 		fmt.Printf("  📜 Lock TX:      %s\n\n", state.HTLCLockTxID)
 		fmt.Println("  ✅ ZEC locked on Zcash blockchain")
