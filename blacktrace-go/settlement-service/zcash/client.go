@@ -307,8 +307,8 @@ func (c *Client) GetInfo() (map[string]interface{}, error) {
 
 // GetAddressBalance returns the balance for a specific address
 func (c *Client) GetAddressBalance(address string) (float64, error) {
-	// Use z_getbalance with 0 confirmations to include unconfirmed
-	result, err := c.call("z_getbalance", address, 0)
+	// Use z_getbalance with 1 confirmation to only show confirmed funds
+	result, err := c.call("z_getbalance", address, 1)
 	if err != nil {
 		return 0, err
 	}
