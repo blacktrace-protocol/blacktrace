@@ -16,6 +16,7 @@ type HTLCClient struct {
 	provider        *rpc.Provider
 	account         *account.Account
 	contractAddress *felt.Felt
+	sncast          *SncastClient
 }
 
 // HTLCDetails represents the state of an HTLC
@@ -30,7 +31,9 @@ type HTLCDetails struct {
 }
 
 // NewHTLCClient creates a new Starknet HTLC client
-func NewHTLCClient(rpcURL, contractAddress, accountAddress, privateKey string) (*HTLCClient, error) {
+// accountName is the name in the accounts file (e.g., "devnet-account0")
+// accountsFile is the path to the accounts JSON file
+func NewHTLCClient(rpcURL, contractAddress, accountName, accountsFile string) (*HTLCClient, error) {
 	ctx := context.Background()
 	provider, err := rpc.NewProvider(ctx, rpcURL)
 	if err != nil {
@@ -43,35 +46,14 @@ func NewHTLCClient(rpcURL, contractAddress, accountAddress, privateKey string) (
 		return nil, fmt.Errorf("invalid contract address: %w", err)
 	}
 
-	// Parse account address
-	accountAddr, err := utils.HexToFelt(accountAddress)
-	if err != nil {
-		return nil, fmt.Errorf("invalid account address: %w", err)
-	}
-
-	// Parse private key
-	privKey, err := utils.HexToFelt(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("invalid private key: %w", err)
-	}
-
-	// Create account
-	ks := account.NewMemKeystore()
-	fakePrivKeyBI, ok := new(big.Int).SetString(privKey.String(), 0)
-	if !ok {
-		return nil, fmt.Errorf("invalid private key format")
-	}
-	ks.Put(accountAddr.String(), fakePrivKeyBI)
-
-	acc, err := account.NewAccount(provider, accountAddr, accountAddr.String(), ks, 2)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create account: %w", err)
-	}
+	// Create sncast client for write operations
+	sncastClient := NewSncastClient(rpcURL, contractAddress, accountName, accountsFile)
 
 	return &HTLCClient{
 		provider:        provider,
-		account:         acc,
+		account:         nil, // Not needed with sncast approach
 		contractAddress: contractAddr,
+		sncast:          sncastClient,
 	}, nil
 }
 
@@ -121,21 +103,18 @@ func (c *HTLCClient) GetHTLCDetails(ctx context.Context) (*HTLCDetails, error) {
 }
 
 // Lock locks STRK tokens in the HTLC contract
-// TODO: Implement using sncast command-line tool or updated starknet.go API
 func (c *HTLCClient) Lock(ctx context.Context, hashLock *felt.Felt, receiver *felt.Felt, timeout uint64, amount *big.Int) (string, error) {
-	return "", fmt.Errorf("Lock function not yet implemented - use sncast CLI for now")
+	return c.sncast.LockFunds(ctx, hashLock, receiver, timeout, amount)
 }
 
 // Claim claims the locked STRK with the secret
-// TODO: Implement using sncast command-line tool or updated starknet.go API
 func (c *HTLCClient) Claim(ctx context.Context, secret *felt.Felt) (string, error) {
-	return "", fmt.Errorf("Claim function not yet implemented - use sncast CLI for now")
+	return c.sncast.ClaimFunds(ctx, secret)
 }
 
 // Refund refunds the locked STRK back to the sender after timeout
-// TODO: Implement using sncast command-line tool or updated starknet.go API
 func (c *HTLCClient) Refund(ctx context.Context) (string, error) {
-	return "", fmt.Errorf("Refund function not yet implemented - use sncast CLI for now")
+	return c.sncast.RefundFunds(ctx)
 }
 
 // HexToFelt converts a hex string to a felt

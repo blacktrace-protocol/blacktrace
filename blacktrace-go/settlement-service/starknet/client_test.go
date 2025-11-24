@@ -12,17 +12,18 @@ import (
 const (
 	testRPCURL          = "http://localhost:5050"
 	testContractAddress = "0x0305b946a388e416709b20b49b4919de92bebbf363b23887e1d14da4593d6204"
-	testAccountAddress  = "0x064b48806902a367c8598f4f95c305e8c1a1acba5f082d294a43793113115691"
-	testPrivateKey      = "0x0000000000000000000000000000000071d7bb07b9a64f6f78ac4c816aff4da9"
+	testAccountName     = "devnet-account0"
+	testAccountsFile    = "/Users/prabhueshwarla/.starknet_accounts/starknet_open_zeppelin_accounts.json"
 	testReceiverAddress = "0x078662e7352d062084b0010068b99288486c2d8b914f6e2a55ce945f8792c8b1"
+	testReceiverName    = "devnet-account1"
 )
 
 func TestNewHTLCClient(t *testing.T) {
 	client, err := NewHTLCClient(
 		testRPCURL,
 		testContractAddress,
-		testAccountAddress,
-		testPrivateKey,
+		testAccountName,
+		testAccountsFile,
 	)
 
 	if err != nil {
@@ -43,8 +44,8 @@ func TestGetHTLCDetails(t *testing.T) {
 	client, err := NewHTLCClient(
 		testRPCURL,
 		testContractAddress,
-		testAccountAddress,
-		testPrivateKey,
+		testAccountName,
+		testAccountsFile,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create HTLC client: %v", err)
@@ -79,8 +80,8 @@ func TestLockHTLC(t *testing.T) {
 	client, err := NewHTLCClient(
 		testRPCURL,
 		testContractAddress,
-		testAccountAddress,
-		testPrivateKey,
+		testAccountName,
+		testAccountsFile,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create HTLC client: %v", err)
@@ -151,8 +152,8 @@ func TestIntegration(t *testing.T) {
 	client, err := NewHTLCClient(
 		testRPCURL,
 		testContractAddress,
-		testAccountAddress,
-		testPrivateKey,
+		testAccountName,
+		testAccountsFile,
 	)
 	if err != nil {
 		t.Fatalf("Failed to create HTLC client: %v", err)
@@ -180,8 +181,8 @@ func ExampleHTLCClient_usage() {
 	client, err := NewHTLCClient(
 		"http://localhost:5050",
 		"0x0305b946a388e416709b20b49b4919de92bebbf363b23887e1d14da4593d6204",
-		"0x064b48806902a367c8598f4f95c305e8c1a1acba5f082d294a43793113115691",
-		"0x0000000000000000000000000000000071d7bb07b9a64f6f78ac4c816aff4da9",
+		"devnet-account0",
+		"/Users/prabhueshwarla/.starknet_accounts/starknet_open_zeppelin_accounts.json",
 	)
 	if err != nil {
 		fmt.Printf("Error: %v\n", err)
