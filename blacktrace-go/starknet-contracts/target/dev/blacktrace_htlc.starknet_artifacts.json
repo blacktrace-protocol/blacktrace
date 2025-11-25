@@ -1,1 +1,1 @@
-{"version":1,"contracts":[{"id":"2b0rjqg595b4s","package_name":"blacktrace_htlc","contract_name":"HTLC","module_path":"blacktrace_htlc::htlc::HTLC","artifacts":{"sierra":"blacktrace_htlc_HTLC.contract_class.json","casm":null}}]}
+{"version":1,"contracts":[{"id":"2b0rjqg595b4s","package_name":"blacktrace_htlc","contract_name":"HTLC","module_path":"blacktrace_htlc::htlc::HTLC","artifacts":{"sierra":"blacktrace_htlc_HTLC.contract_class.json","casm":"blacktrace_htlc_HTLC.compiled_contract_class.json"}}]}

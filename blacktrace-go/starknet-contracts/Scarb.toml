@@ -7,3 +7,4 @@ edition = "2023_11"
 starknet = ">=2.6.0"
 
 [[target.starknet-contract]]
+casm = true

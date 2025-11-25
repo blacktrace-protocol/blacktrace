@@ -1,16 +1,15 @@
 module github.com/blacktrace/settlement-service
 
-go 1.25.0
+go 1.24.1
 
 require (
-	github.com/NethermindEth/starknet.go v0.17.0
+	github.com/NethermindEth/juno v0.14.0
+	github.com/NethermindEth/starknet.go v0.14.0
 	github.com/nats-io/nats.go v1.31.0
 	golang.org/x/crypto v0.41.0
 )
 
 require (
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
-	github.com/NethermindEth/juno v0.15.7 // indirect
 	github.com/bits-and-blooms/bitset v1.24.0 // indirect
 	github.com/consensys/gnark-crypto v0.18.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -28,3 +27,6 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Force older juno version that works with Go 1.23
+replace github.com/NethermindEth/juno => github.com/NethermindEth/juno v0.14.7

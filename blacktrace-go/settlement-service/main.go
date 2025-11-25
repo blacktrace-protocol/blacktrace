@@ -730,7 +730,14 @@ func (s *SettlementService) handleAddressBalance(w http.ResponseWriter, r *http.
 
 	balance, err := s.zcashClient.GetAddressBalance(address)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
+		// Return JSON error response instead of plain text
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"error":   fmt.Sprintf("Failed to get balance: %v", err),
+			"address": address,
+			"balance": 0.0, // Return 0 balance on error so frontend can still render
+		})
 		return
 	}
 

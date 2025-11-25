@@ -307,18 +307,35 @@ func (c *Client) GetInfo() (map[string]interface{}, error) {
 
 // GetAddressBalance returns the balance for a specific address
 func (c *Client) GetAddressBalance(address string) (float64, error) {
-	// Use z_getbalance with 1 confirmation to only show confirmed funds
-	result, err := c.call("z_getbalance", address, 1)
-	if err != nil {
-		return 0, err
-	}
+	// For transparent addresses (starting with 't'), use getreceivedbyaddress
+	// For shielded addresses (starting with 'z'), use z_getbalance
+	if len(address) > 0 && address[0] == 'z' {
+		// Shielded address - use z_getbalance
+		result, err := c.call("z_getbalance", address, 1)
+		if err != nil {
+			return 0, err
+		}
 
-	var balance float64
-	if err := json.Unmarshal(result, &balance); err != nil {
-		return 0, fmt.Errorf("failed to unmarshal balance: %w", err)
-	}
+		var balance float64
+		if err := json.Unmarshal(result, &balance); err != nil {
+			return 0, fmt.Errorf("failed to unmarshal balance: %w", err)
+		}
 
-	return balance, nil
+		return balance, nil
+	} else {
+		// Transparent address - use getreceivedbyaddress
+		result, err := c.call("getreceivedbyaddress", address, 1)
+		if err != nil {
+			return 0, err
+		}
+
+		var balance float64
+		if err := json.Unmarshal(result, &balance); err != nil {
+			return 0, fmt.Errorf("failed to unmarshal balance: %w", err)
+		}
+
+		return balance, nil
+	}
 }
 
 // SetMockTime sets the mock time for regtest (requires -mocktime flag)
