@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/blacktrace/blacktrace/node"
+	"github.com/blacktrace/blacktrace/services/node"
 	"github.com/spf13/cobra"
 )
 

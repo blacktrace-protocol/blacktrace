@@ -20,7 +20,9 @@ services:
 
   # Bootstrap node (Maker - Alice)
   node-maker:
-    build: .
+    build:
+      context: ..
+      dockerfile: services/node/Dockerfile
     container_name: blacktrace-maker
     environment:
       - NODE_TYPE=bootstrap
@@ -48,7 +50,9 @@ services:
 
   # Taker node (Bob) - starts after maker
   node-taker:
-    build: .
+    build:
+      context: ..
+      dockerfile: services/node/Dockerfile
     container_name: blacktrace-taker
     environment:
       - NODE_TYPE=regular
@@ -105,7 +109,7 @@ services:
       - blacktrace-net
     volumes:
       - zcash-regtest-data:/srv/zcashd/.zcash
-      - ./zcash.conf:/srv/zcashd/.zcash/zcash.conf
+      - zcash.conf:/srv/zcashd/.zcash/zcash.conf
     cap_add:
       - SYS_NICE
       - SYS_RESOURCE
@@ -120,8 +124,8 @@ services:
   # Go settlement service - Coordinates atomic swaps
   settlement-service:
     build:
-      context: ./settlement-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/settlement/Dockerfile
     container_name: blacktrace-settlement
     ports:
       - "8090:8090"

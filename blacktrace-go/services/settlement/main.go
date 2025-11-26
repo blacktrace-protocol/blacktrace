@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/blacktrace/settlement-service/zcash"
+	"github.com/blacktrace/blacktrace/connectors/zcash"
 	"github.com/nats-io/nats.go"
 	"golang.org/x/crypto/ripemd160"
 )
