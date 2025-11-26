@@ -11,6 +11,7 @@ import { AliceSettlement } from './components/AliceSettlement';
 import { BobSettlement } from './components/BobSettlement';
 import { SettlementQueue } from './components/SettlementQueue';
 import { WalletBalance } from './components/WalletBalance';
+import { StarknetHTLC } from './components/StarknetHTLC';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './components/ui/tabs';
 import { Lock, Shield, LogOut } from 'lucide-react';
 import { useState } from 'react';
@@ -90,7 +91,7 @@ function App() {
               <LoginPanel side="alice" title="Alice Login" />
             ) : (
               <Tabs defaultValue="wallet" className="w-full">
-                <TabsList className="w-full grid grid-cols-5">
+                <TabsList className="w-full grid grid-cols-6">
                   <TabsTrigger value="wallet">Wallet</TabsTrigger>
                   <TabsTrigger value="create-order">Create Order</TabsTrigger>
                   <TabsTrigger value="my-orders">
@@ -102,6 +103,7 @@ function App() {
                   <TabsTrigger value="settlement">
                     Settlement {aliceSettlementCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{aliceSettlementCount}</span>}
                   </TabsTrigger>
+                  <TabsTrigger value="starknet">Starknet</TabsTrigger>
                 </TabsList>
                 <TabsContent value="wallet">
                   <WalletBalance user="alice" />
@@ -117,6 +119,9 @@ function App() {
                 </TabsContent>
                 <TabsContent value="settlement">
                   <AliceSettlement onCountChange={setAliceSettlementCount} />
+                </TabsContent>
+                <TabsContent value="starknet">
+                  <StarknetHTLC panel="maker" />
                 </TabsContent>
               </Tabs>
             )}
@@ -167,7 +172,7 @@ function App() {
               />
             ) : (
               <Tabs defaultValue="wallet" className="w-full">
-                <TabsList className="w-full grid grid-cols-4">
+                <TabsList className="w-full grid grid-cols-5">
                   <TabsTrigger value="wallet">Wallet</TabsTrigger>
                   <TabsTrigger value="available-orders">
                     Orders {bobOrdersCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobOrdersCount}</span>}
@@ -178,6 +183,7 @@ function App() {
                   <TabsTrigger value="settlement">
                     Settlement {bobSettlementCount > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-xs font-bold bg-primary text-primary-foreground rounded">{bobSettlementCount}</span>}
                   </TabsTrigger>
+                  <TabsTrigger value="starknet">Starknet</TabsTrigger>
                 </TabsList>
                 <TabsContent value="wallet">
                   <WalletBalance user="bob" />
@@ -196,6 +202,9 @@ function App() {
                 </TabsContent>
                 <TabsContent value="settlement">
                   <BobSettlement onCountChange={setBobSettlementCount} />
+                </TabsContent>
+                <TabsContent value="starknet">
+                  <StarknetHTLC panel="taker" />
                 </TabsContent>
               </Tabs>
             )}
