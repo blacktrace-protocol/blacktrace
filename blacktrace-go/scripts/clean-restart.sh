@@ -6,7 +6,7 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo ""
 
 echo "📦 Stopping all services..."
-docker-compose down
+docker-compose -f config/docker-compose.yml down
 
 echo ""
 echo "🗑️  Removing old proposal data..."
@@ -23,7 +23,7 @@ echo "✅ Frontend built"
 
 echo ""
 echo "🚀 Starting all services with fresh state..."
-docker-compose up --build -d
+docker-compose -f config/docker-compose.yml up --build -d
 
 echo ""
 echo "⏳ Waiting for services to initialize..."
@@ -40,5 +40,5 @@ echo "  2. Create new orders and proposals"
 echo "  3. Test the settlement flow cleanly"
 echo ""
 echo "View logs:"
-echo "  docker-compose logs -f settlement-service"
+echo "  docker-compose -f config/docker-compose.yml logs -f settlement-service"
 echo ""

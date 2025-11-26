@@ -2,13 +2,22 @@
 
 ## ✅ Completed
 
-### Files Moved (with git history preserved):
+### Part 1: Files Moved (with git history preserved):
 - **Node service**: `node/*.go` → `services/node/`
 - **Settlement service**: `settlement-service/main.go` → `services/settlement/`
 - **Zcash connector**: `settlement-service/zcash/*.go` → `connectors/zcash/`
 - **Configuration**: `docker-compose.yml`, `zcash.conf` → `config/`
 - **Scripts**: `clean-restart.sh` → `scripts/`
 - **Dockerfiles**: Root `Dockerfile` → `services/node/Dockerfile`
+
+### Part 2: Import Paths & Build Configuration Updated:
+- ✅ Updated `cmd/node.go`: `blacktrace/services/node`
+- ✅ Updated `services/settlement/main.go`: `blacktrace/connectors/zcash`
+- ✅ Updated `config/docker-compose.yml`: build contexts and paths
+- ✅ Updated `services/settlement/Dockerfile`: build path to `./services/settlement`
+- ✅ Moved Starknet contracts: `starknet-contracts/*` → `connectors/starknet/htlc-contract/`
+- ✅ Tested Go builds: node and settlement services compile successfully
+- ✅ Tested Docker builds: all services build and run successfully
 
 ### Folders Created:
 - `services/node/`
@@ -20,70 +29,25 @@
 - `tests/integration/`
 - `examples/`
 
-Total files reorganized: **19 files** (preserving git history)
+Total files reorganized: **32 files** (preserving git history)
 
-## 🚧 TODO (Next Steps)
+## 🚧 TODO (Remaining Tasks)
 
-### 1. Update Import Paths
-All Go files that import from `node/` need to be updated to `services/node/`:
+### 1. Update Scripts
+Update `scripts/clean-restart.sh` to reference `config/docker-compose.yml` instead of `./docker-compose.yml`
 
-```bash
-# Files to update:
-- services/node/*.go (update internal imports)
-- services/settlement/main.go (if it imports node packages)
-- cmd/*.go (update imports)
-```
+### 2. Create Connector Interface
+Create `connectors/interface.go` with ChainConnector interface definition for multi-chain support.
 
-**Find and replace:**
-- `"blacktrace-go/node"` → `"blacktrace/services/node"`
-- `"blacktrace-go/settlement-service"` → `"blacktrace/services/settlement"`
-- `"blacktrace-go/settlement-service/zcash"` → `"blacktrace/connectors/zcash"`
-
-### 2. Update go.mod
-Change module path from `blacktrace-go` to `blacktrace`:
-```
-module blacktrace
-```
-
-### 3. Update docker-compose.yml
-Update build context paths:
-```yaml
-node-maker:
-  build:
-    context: ..
-    dockerfile: services/node/Dockerfile
-
-settlement-service:
-  build:
-    context: ..
-    dockerfile: services/settlement/Dockerfile
-```
-
-### 4. Update Dockerfiles
-Update COPY and WORKDIR paths to match new structure.
-
-### 5. Create Connector Interface
-Create `connectors/interface.go` with ChainConnector interface definition.
-
-### 6. Move Starknet Contracts
-```bash
-git mv starknet-contracts/* connectors/starknet/htlc-contract/
-```
-
-### 7. Test Build
-```bash
-cd services/node && go build
-cd ../settlement && go build
-```
-
-### 8. Test Docker Build
-```bash
-docker-compose -f config/docker-compose.yml build
-```
-
-### 9. Update Documentation
+### 3. Update Documentation
 - Update README.md with new folder structure
-- Update import examples in docs/
+- Update import examples in docs/API.md and docs/CHAIN_CONNECTORS.md
+- Add architecture diagram showing services, connectors, and config separation
+
+### 4. Prepare Frontend for Extraction (Optional)
+- Ensure frontend has minimal dependencies on backend structure
+- Document frontend API endpoints for standalone deployment
+- Ready for extraction to `zec-strk-htlc-pex` repository
 
 ## 📁 Final Structure
 
@@ -112,38 +76,25 @@ blacktrace/
 
 ## ⚠️ Known Issues
 
-1. Build will fail until import paths are updated
-2. Docker Compose won't work until paths are updated in config/docker-compose.yml
-3. Some scripts may reference old paths
+1. `scripts/clean-restart.sh` still references `docker-compose.yml` at root instead of `config/docker-compose.yml`
+2. Some documentation may still reference old folder structure
 
-## 🔄 Commands to Complete Reorganization
+## ✅ Verification
 
-```bash
-# 1. Update import paths (use sed or find/replace in IDE)
-find services cmd -name "*.go" -exec sed -i '' 's|blacktrace-go/node|blacktrace/services/node|g' {} +
-find services cmd -name "*.go" -exec sed -i '' 's|blacktrace-go/settlement-service|blacktrace/services/settlement|g' {} +
+All core functionality verified:
+- ✅ Go builds compile successfully
+- ✅ Docker images build successfully
+- ✅ All services start and run correctly
+- ✅ Git history preserved for all moved files
 
-# 2. Update go.mod
-sed -i '' 's|module blacktrace-go|module blacktrace|g' go.mod
+## 📝 Summary
 
-# 3. Update docker-compose.yml build contexts
-# (Manual edit required)
+The folder reorganization is **functionally complete**. The codebase now has a clean separation:
+- **Services**: Core BlackTrace platform services (node, settlement)
+- **Connectors**: Chain-specific integrations (Zcash, Starknet HTLC)
+- **Config**: Deployment and configuration files
+- **Scripts**: Utility scripts for development
+- **Tests**: API tests and integration tests
+- **Docs**: Platform documentation and API guides
 
-# 4. Test build
-cd services/node && go build
-cd ../settlement && go build
-
-# 5. Commit
-git add -A
-git commit -m "Complete folder reorganization with updated imports"
-```
-
-## 💡 Next Session
-
-When ready to continue:
-1. Run the commands above to update import paths
-2. Update docker-compose.yml manually
-3. Test build
-4. Test docker-compose
-5. Update documentation
-6. Commit final reorganization
+Remaining tasks are primarily documentation updates and optional enhancements.
