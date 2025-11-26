@@ -15,7 +15,7 @@ export function CreateOrderForm() {
   const [amount, setAmount] = useState('');
   const [minPrice, setMinPrice] = useState('');
   const [maxPrice, setMaxPrice] = useState('');
-  const [stablecoin, setStablecoin] = useState('USDC');
+  const [stablecoin, setStablecoin] = useState('STRK');
   const [takerUsername, setTakerUsername] = useState('');
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
@@ -87,7 +87,7 @@ export function CreateOrderForm() {
           Create OTC Order
         </CardTitle>
         <CardDescription>
-          Sell ZEC for stablecoins with your price range
+          Sell ZEC for STRK or stablecoins with your price range
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -108,13 +108,14 @@ export function CreateOrderForm() {
 
           <div className="space-y-2">
             <label className="text-sm font-medium">
-              Stablecoin
+              Settlement Asset
             </label>
             <select
               className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
               value={stablecoin}
               onChange={(e) => setStablecoin(e.target.value)}
             >
+              <option value="STRK">STRK (Starknet)</option>
               <option value="USDC">USDC</option>
               <option value="USDT">USDT</option>
               <option value="DAI">DAI</option>

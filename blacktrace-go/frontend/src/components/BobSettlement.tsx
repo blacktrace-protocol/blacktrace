@@ -118,7 +118,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Lock className="h-5 w-5" />
-          Settlement - Lock USDC
+          Settlement - Lock Assets
           {loading && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
         </CardTitle>
         <CardDescription>
@@ -160,7 +160,9 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                 </div>
 
                 {proposals.map((proposal, idx) => {
-                  const totalUSDC = proposal.amount / 100 * proposal.price;
+                  const totalAmount = proposal.amount / 100 * proposal.price;
+                  const assetSymbol = order.stablecoin || 'USDC';
+                  const isSTRK = assetSymbol === 'STRK';
 
                   return (
                     <div
@@ -189,13 +191,13 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                         <div>
                           <div className="text-xs text-muted-foreground">Price</div>
                           <div className="text-lg font-semibold">
-                            ${proposal.price}
+                            {isSTRK ? '' : '$'}{proposal.price}{isSTRK ? ' STRK' : ''}
                           </div>
                         </div>
                         <div>
-                          <div className="text-xs text-muted-foreground">USDC to Lock</div>
+                          <div className="text-xs text-muted-foreground">{assetSymbol} to Lock</div>
                           <div className="text-lg font-semibold text-green-400">
-                            ${totalUSDC.toFixed(2)}
+                            {isSTRK ? '' : '$'}{totalAmount.toFixed(2)}{isSTRK ? ' STRK' : ''}
                           </div>
                         </div>
                       </div>
@@ -214,7 +216,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                           <span className="font-medium">Alice has locked {(proposal.amount / 100).toFixed(2)} ZEC</span>
                         </div>
                         <div className="text-xs text-green-400/80">
-                          You can now safely lock your USDC. The atomic swap ensures you'll receive the ZEC once both sides are locked.
+                          You can now safely lock your {assetSymbol}. The atomic swap ensures you'll receive the ZEC once both sides are locked.
                         </div>
                       </div>
 
@@ -232,7 +234,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                         ) : (
                           <>
                             <Lock className="h-4 w-4 mr-1" />
-                            Lock ${totalUSDC.toFixed(2)} USDC
+                            Lock {isSTRK ? `${totalAmount.toFixed(2)} STRK` : `$${totalAmount.toFixed(2)} ${assetSymbol}`}
                           </>
                         )}
                       </Button>

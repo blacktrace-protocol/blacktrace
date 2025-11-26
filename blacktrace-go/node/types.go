@@ -30,6 +30,7 @@ const (
 	StablecoinUSDC StablecoinType = "USDC"
 	StablecoinUSDT StablecoinType = "USDT"
 	StablecoinDAI  StablecoinType = "DAI"
+	StablecoinSTRK StablecoinType = "STRK"
 )
 
 // ProposalStatus represents the state of a proposal
