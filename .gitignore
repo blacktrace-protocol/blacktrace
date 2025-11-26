@@ -1,23 +1,17 @@
-# Rust
-/target/
-**/*.rs.bk
-*.pdb
+# Binaries
+blacktrace
+blacktrace-demo
+blacktrace-node
 
-# Cargo
-Cargo.lock
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# Test binary
+*.test
 
-# OS
-.DS_Store
-Thumbs.db
-
-# BlackTrace specific
-.blacktrace/
-*.log
-config.toml.local
+# Go coverage
+*.out

@@ -1,186 +1,304 @@
-# BlackTrace Protocol
+# BlackTrace
 
-**Zero-Knowledge OTC Settlement for Institutional Zcash Trading**
+**Trustless OTC Trading for Crypto-Native Institutions**
 
-BlackTrace is the decentralized, zero-knowledge OTC coordination protocol built on Zcash. We enable institutions to execute massive, large-volume ZEC trades-worth millions-without market impact, information leakage, or counterparty risk.
+BlackTrace enables large, private over-the-counter (OTC) trades between parties who don't trust each other - without counterparty risk, front-running, or intermediaries.
 
 ## The Problem
 
-Institutional traders face an impossible trilemma:
-- **Privacy** (hiding their position)
-- **Guaranteed Settlement** (no counterparty risk)
-- **Efficient Price Discovery** (finding the best price quickly)
+You find a counterparty for a $10M ZEC-USDC trade on Discord. You don't know them. What do you do?
 
-Today's OTC desks leak order information (leading to front-running) and manual 48-hour settlements expose traders to billions in counterparty default risk.
+**Today's Options (All Bad):**
+- ❌ **Trust them**: Send ZEC first, hope they send USDC (massive counterparty risk)
+- ❌ **Use OTC desk**: They see your order and front-run you on exchanges
+- ❌ **Escrow service**: Expensive (1-2% fees), slow, still requires trust
+- ❌ **Legal agreements**: Weeks of negotiation, only works same-jurisdiction
+
+**The Core Issue**: No way to settle large OTC trades trustlessly with privacy.
 
 ## The Solution
 
-BlackTrace solves the institutional trilemma by building a trustless coordination layer on top of Zcash's Orchard privacy features:
+BlackTrace provides **trustless settlement with encrypted negotiation**:
 
-- **Zero-knowledge liquidity proofs**: Prove you have funds without revealing amounts
-- **Encrypted P2P negotiation**: Private multi-round price discovery
-- **Atomic settlement**: HTLC-based swaps on Zcash L1 with zero counterparty risk
-- **Settlement time**: Reduced from 48 hours to ~30 minutes
+1. **Private Order Routing**: Alice sends encrypted order directly to Bob (no broadcast, no leakage)
+2. **Encrypted Negotiation**: End-to-end encrypted proposals using ECIES
+3. **Atomic Settlement**: HTLC-based swaps guarantee both-or-neither execution
+4. **Cross-chain**: Zcash ↔ zTarknet (Starknet), with Solana/NEAR coming
 
-## Architecture
+### Key Features
 
-### Hybrid Rust-Go Stack
+- ✅ **Zero Counterparty Risk**: HTLCs ensure atomic swaps (both or neither)
+- ✅ **Front-running Prevention**: Orders encrypted, sent peer-to-peer (not broadcast)
+- ✅ **No KYC Required**: Permissionless, privacy-preserving
+- ✅ **No Intermediaries**: Direct peer-to-peer settlement
+- ✅ **Cross-chain**: Zcash L1 (Orchard) + Starknet stablecoins
+- ✅ **Audit Trail**: On-chain settlement verification
 
-BlackTrace uses a multi-language architecture, with each language optimized for its strengths:
+## Target Users
 
-- **Go (`blacktrace-go/`)**: P2P networking with libp2p (encrypted connections, automatic peer discovery)
-- **Rust (`src/`)**: Cryptography (Blake2b, ZK proofs) and Zcash L1 integration
-- **Integration**: FFI/cgo for calling Rust crypto functions from Go application
+**Crypto-Native Institutions:**
+- 🏛️ **DAO Treasuries**: Trustless settlement with on-chain transparency
+- 🐋 **Privacy Whales**: No KYC, no desk seeing your positions
+- 🌍 **Cross-border Traders**: No legal framework needed
+- 💬 **Discord/Telegram Deals**: Found counterparty online, need trustless execution
 
-### 4-Layer System
+**Not For:**
+- Traditional institutions needing fiat settlement
+- Users wanting credit lines (we require HTLC collateral)
+- High-frequency trading (optimized for large, private trades)
 
-1. **Layer 1**: CLI (User Interface)
-2. **Layer 2**: Application Logic (P2P, ZK Proofs, Negotiation, Settlement)
-3. **Layer 3**: Ztarknet L2 Contracts (ZK-Attester, Order Registry)
-4. **Layer 4**: Zcash L1 (Orchard shielded pool + HTLCs)
+## How It Works
 
-See `docs/ARCHITECTURE.md` for detailed design rationale.
+### Architecture
 
-## Status
-
-> 🚧 **Off-Chain Workflow Complete** - On-chain integration in progress
-
-### Phase 1: Off-Chain Infrastructure (COMPLETE ✅)
-- ✅ Project structure and build system
-- ✅ Shared types and error handling (OrderID, PeerID, Hash, etc.)
-- ✅ P2P network manager (Go + libp2p with Noise encryption)
-- ✅ ZK commitment scheme (Rust - hash-based liquidity proofs)
-- ✅ Negotiation engine (Rust - multi-round price discovery)
-- ✅ Application layer (Go - channel-based architecture)
-- ✅ Demo: 6/6 scenarios passing with no deadlocks
-
-### Phase 2: On-Chain Integration (PENDING ⏳)
-- ⏳ Zcash L1 RPC client + Orchard HTLC builder
-- ⏳ Ztarknet L2 client + Cairo HTLC interface
-- ⏳ Two-layer settlement coordinator
-- ⏳ Dual-layer blockchain monitor
-- ⏳ End-to-end atomic swap testing
-
-**Current Milestone**: 7/13 components complete (54%)
-
-See `docs/START_HERE.md` and `docs/IMPLEMENTATION_STATUS.md` for detailed status.
-
-## Build Instructions
-
-### Go Application (CLI + Networking)
-
-```bash
-# Navigate to Go implementation
-cd blacktrace-go
-
-# Install dependencies
-go mod tidy
-
-# Build the CLI
-go build -o blacktrace
-
-# View available commands
-./blacktrace --help
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     BlackTrace Protocol                      │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  1. PRIVATE ORDER ROUTING (Encrypted P2P)                   │
+│     Alice → [Encrypted Order] → Bob (only)                  │
+│                                                              │
+│  2. ENCRYPTED NEGOTIATION (ECIES)                           │
+│     Bob → [Encrypted Proposal] → Alice                      │
+│     Alice → [Encrypted Acceptance] → Bob                    │
+│                                                              │
+│  3. ATOMIC SETTLEMENT (HTLCs)                               │
+│     ┌──────────────────┐    ┌──────────────────┐           │
+│     │ Zcash L1 HTLC    │    │ zTarknet HTLC    │           │
+│     │ (Alice locks ZEC)│    │ (Bob locks USDC) │           │
+│     └────────┬─────────┘    └─────────┬────────┘           │
+│              │                         │                     │
+│              └─────────┬───────────────┘                     │
+│                    Secret Reveal                             │
+│              Both claim or both refund                       │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Rust Library (Cryptography)
+### Trade Flow
+
+1. **Alice**: Creates encrypted order for 10,000 ZEC @ $465
+2. **Alice → Bob**: Sends encrypted order directly (peer-to-peer)
+3. **Bob**: Decrypts order, sees terms
+4. **Bob → Alice**: Sends encrypted counter-proposal
+5. **Alice**: Decrypts, reviews, accepts
+6. **Settlement Service**: Initiates atomic swap via HTLCs
+   - Alice locks 10,000 ZEC on Zcash L1 (Orchard pool)
+   - Bob locks $4.65M USDC on zTarknet (Starknet)
+   - Both claim with secret reveal, or both refund
+
+**Result**: Trustless, atomic, private OTC trade.
+
+## Technology Stack
+
+- **P2P Network**: libp2p (gossipsub for peer discovery)
+- **Encryption**: ECIES (secp256k1) for end-to-end encrypted negotiation
+- **Settlement**: HTLC atomic swaps (Zcash + Starknet)
+- **Coordination**: Go nodes + NATS message broker
+- **HTLC Engine**: Rust service (Zcash + Starknet integration)
+- **Frontend**: Next.js institutional dashboard (coming)
+
+## Quick Start
+
+### Option 1: Docker Compose (Full Demo)
 
 ```bash
-# Build Rust crypto library
-cargo build --release
+# Start Alice (maker), Bob (taker), NATS, settlement service, and tests
+docker-compose up
 
-# Run Rust tests
-cargo test
+# View test results
+docker logs blacktrace-tests
 ```
 
-## Usage
+See [README-DOCKER.md](./README-DOCKER.md) for details.
 
-### Start a Node
+### Option 2: Local Development
 
 ```bash
-# Start first node (Maker)
-./blacktrace node --port 9000
+# Terminal 1: Alice (maker node)
+go run cmd/blacktrace/main.go node --port 9000 --api-port 8080
 
-# Start second node (Taker) and connect to first
-./blacktrace node --port 9001 --connect /ip4/127.0.0.1/tcp/9000/p2p/<peer-id>
+# Terminal 2: Bob (taker node)
+go run cmd/blacktrace/main.go node --port 9001 --api-port 8081
+
+# Terminal 3: Settlement service
+cd settlement-service && cargo run
 ```
 
-### Create and Manage Orders
+## API Example
 
 ```bash
-# Create a sell order for 10,000 ZEC
-./blacktrace order create \
-  --amount 10000 \
-  --stablecoin USDC \
-  --min-price 450 \
-  --max-price 470
+# Alice registers
+curl -X POST http://localhost:8080/register \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret"}'
 
-# List all discovered orders
-./blacktrace order list
+# Alice logs in
+TOKEN=$(curl -X POST http://localhost:8080/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"alice","password":"secret"}' | jq -r .token)
+
+# Alice creates encrypted order (sent directly to Bob's peer ID)
+curl -X POST http://localhost:8080/orders \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "asset": "ZEC",
+    "amount": 1000000,
+    "price": 465,
+    "side": "sell",
+    "stablecoin": "USDC",
+    "recipient_peer_id": "Bob_peer_ID_here"
+  }'
+
+# Bob sees encrypted order, decrypts, creates encrypted proposal
+curl -X POST http://localhost:8081/proposals \
+  -H "Authorization: Bearer $BOB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "order_id": "order_xxx",
+    "amount": 1000000,
+    "price": 465
+  }'
+
+# Alice decrypts proposal, accepts
+curl -X POST http://localhost:8080/proposals/{proposal_id}/accept \
+  -H "Authorization: Bearer $TOKEN"
+
+# Settlement request posted to NATS → HTLC creation
 ```
 
-### Negotiate Prices
+## Project Status
 
-```bash
-# Request details for an order
-./blacktrace negotiate request <order-id>
+### ✅ Completed (Phases 1-3)
+- [x] P2P networking (libp2p)
+- [x] User authentication & key management
+- [x] Encrypted order routing (peer-to-peer)
+- [x] Encrypted proposals/acceptance (ECIES)
+- [x] NATS settlement coordination
+- [x] Docker Compose orchestration
+- [x] E2E test suite (14/16 passing)
 
-# Propose a price
-./blacktrace negotiate propose <order-id> \
-  --price 460 \
-  --amount 10000
-```
+### 🚧 In Progress (Phase 4)
+- [ ] Institutional UI dashboard (Next.js)
+- [ ] HTLC contracts (Zcash Orchard + Starknet)
+- [ ] Atomic swap execution engine
 
-### Query Network
+### 🔮 Future (Phase 5+)
+- [ ] Solana settlement integration
+- [ ] NEAR Intents settlement
+- [ ] Multi-party trades (>2 participants)
+- [ ] Reputation system
 
-```bash
-# List connected peers
-./blacktrace query peers
+## Why Zcash + Starknet?
 
-# Show node status
-./blacktrace query status
-```
+**Zcash**: Privacy-preserving Layer 1 for institutional holdings
+- Shielded pools (Orchard) for private balances
+- Programmable with future ZSAs (Zcash Shielded Assets)
+- Trusted by privacy-focused whales
 
-### Run Demo
+**zTarknet (Starknet)**: Low-cost, fast stablecoin settlement
+- USDC/USDT with sub-cent fees
+- Cairo smart contracts for HTLCs
+- Validity proofs for settlement verification
 
-```bash
-# Run the automated two-node demo
-cd blacktrace-go
-go run examples/demo.go
-```
+**Atomic Swaps**: ZEC (Zcash L1) ↔ USDC (Starknet) trustlessly.
 
-## Testing
+## Competitive Landscape
 
-### Rust Crypto Tests
+| Solution | Counterparty Risk | Front-running | KYC Required | Cross-chain |
+|----------|-------------------|---------------|--------------|-------------|
+| **Traditional OTC Desks** | ❌ High | ❌ Yes (desk sees orders) | ✅ Yes | ❌ No |
+| **Escrow Services** | ⚠️ Medium | ⚠️ Possible | ✅ Yes | ⚠️ Limited |
+| **DEX Aggregators** | ✅ None | ❌ Yes (public mempool) | ❌ No | ⚠️ Limited |
+| **BlackTrace** | ✅ None (HTLCs) | ✅ No (encrypted) | ❌ No | ✅ Yes |
 
-```bash
-# Run all Rust tests
-cargo test
+## Use Cases
 
-# Run specific test suite
-cargo test --test unit
-cargo test --test integration
-```
+### 1. DAO Treasury Management
+A DAO votes to diversify 50,000 ZEC into stablecoins. They find a buyer on Discord but don't trust them.
 
-### Manual CLI Testing
+**BlackTrace**: Trustless HTLC swap, on-chain audit trail for governance.
 
-See `docs/MANUAL_TESTING.md` for detailed testing scenarios.
+### 2. Privacy Whale
+A whale wants to sell 100,000 ZEC without:
+- KYC to an OTC desk
+- The desk front-running their trade
+- Revealing their position size
 
-## Built With
+**BlackTrace**: Encrypted P2P order, atomic settlement, zero leakage.
 
-### Go Stack (Networking)
-- **Go 1.21+** - Application runtime
-- **libp2p** - P2P networking framework (gossipsub + streams)
-- **Noise Protocol** - Transport encryption
-- **mDNS** - Automatic peer discovery
+### 3. Cross-border Institutional Trade
+US fund wants to buy ZEC from Asian counterparty. Different jurisdictions, no legal framework.
 
-### Rust Stack (Cryptography & Blockchain)
-- **Rust 1.91+** - Crypto implementation
-- **Blake2b** - Cryptographic hashing for commitments
-- **Tokio** - Async runtime for blockchain monitoring
-- **Zcash** - Settlement layer (Orchard shielded pool) - pending integration
-- **Ztarknet** - L2 privacy layer (Cairo HTLC contracts) - pending integration
+**BlackTrace**: No legal agreements needed, code is the contract.
+
+## Hackathon Demo Flow
+
+1. **Split-screen UI**: Alice (left) | Bob (right)
+2. **Alice**: Logs in, creates encrypted order: "Sell 10,000 ZEC @ $465"
+3. **Bob**: Sees encrypted order blob, clicks "Decrypt", views terms
+4. **Bob**: Creates encrypted proposal, sends to Alice
+5. **Alice**: Decrypts proposal, clicks "Accept"
+6. **Settlement Panel**: Shows NATS message → HTLC creation
+7. **Timeline**: Visual progress from Order → Proposal → Accepted → Settlement
+
+**Visual Impact**: Judges see encrypted blobs transform into terms, trustless execution.
+
+## Current Demo Limitations
+
+This demo implementation has the following limitations:
+
+### User Roles & Configuration
+1. **Single Maker Per Node**: While multiple users can register on the maker node (port 8080), all orders from that node share the same libp2p peer ID. Takers cannot distinguish which user created which order since the `OrderAnnouncement` only contains the node's peer ID, not the maker's username.
+   - **Workaround**: Run separate maker nodes for each maker user, or use the current setup with one primary maker per node.
+
+2. **Multiple Takers Supported**: Multiple users can register on the taker node (port 8081) and operate independently. Each taker user can:
+   - View encrypted orders targeted to them specifically
+   - Create separate encrypted proposals
+   - Maintain independent sessions
+
+### Order Types
+3. **Sell Orders Only**: The current implementation only supports **sell orders** where the maker sells ZEC for stablecoin.
+   - Maker = Always seller of ZEC
+   - Taker = Always buyer of ZEC (paying with stablecoin)
+   - Buy orders (maker buys ZEC with stablecoin) are not yet implemented.
+
+### Identity & Encryption
+4. **Shared Identity Storage Required**: For encrypted order creation to work in Docker, all nodes must share the same identities directory via the `shared-identities` volume. This is configured in `docker-compose.yml` and is necessary for makers to access takers' public keys at order creation time.
+
+5. **Targeted Encryption**: When creating an order with a specific taker username:
+   - Order details are encrypted using ECIES with the taker's public key
+   - Only the specified taker can decrypt the order details
+   - Other users see placeholder values (e.g., `???` for amount)
+
+### Trading & Settlement
+6. **No Order Cancellation**: Once an order is created and broadcast, it cannot be cancelled or modified.
+
+7. **No Partial Fills**: Orders are all-or-nothing. Partial fill support is not implemented.
+
+8. **Session Expiry**: User sessions expire after 24 hours and require re-login.
+
+9. **Single Stablecoin Per Order**: Each order can only specify one stablecoin type (USDC, USDT, or DAI). Mixed stablecoin settlements are not supported.
+
+### Settlement Service
+10. **HTLC Integration Pending**: The Zcash Orchard and Starknet HTLC smart contracts are in development. Current demo focuses on encrypted negotiation flow.
+
+These limitations are intentional for the demo scope and can be addressed in future iterations.
+
+## Contributing
+
+This is a hackathon project. Contributions welcome after initial demo!
 
 ## License
 
 MIT
+
+## Contact
+
+Built for [Hackathon Name] by [Your Team]
+
+---
+
+**TL;DR**: BlackTrace = Trustless OTC trading for crypto whales who found each other on Discord and don't want to get rugged.

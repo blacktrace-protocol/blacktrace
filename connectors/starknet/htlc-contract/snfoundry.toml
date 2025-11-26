@@ -1,0 +1,7 @@
+[sncast.devnet]
+url = "http://localhost:5050"
+account = "devnet-account0"
+
+[sncast.devnet.accounts.devnet-account0]
+address = "0x064b48806902a367c8598f4f95c305e8c1a1acba5f082d294a43793113115691"
+private_key = "0x0000000000000000000000000000000071d7bb07b9a64f6f78ac4c816aff4da9"

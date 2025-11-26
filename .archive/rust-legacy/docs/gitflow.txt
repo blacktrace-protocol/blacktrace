@@ -1,0 +1,10 @@
+Git Workflow
+bash# Main branches
+main          # Production-ready code
+develop       # Integration branch
+feature/*     # Feature branches
+
+# Commit often with clear messages
+git commit -m "feat: implement P2P network manager"
+git commit -m "fix: handle network partition in peer discovery"
+

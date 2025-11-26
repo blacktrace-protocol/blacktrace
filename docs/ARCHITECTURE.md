@@ -1,573 +1,583 @@
 # BlackTrace Architecture
 
-## Overview
-
-BlackTrace is a zero-knowledge OTC coordination protocol for institutional Zcash trading. It enables institutions to execute large-volume ZEC trades without market impact, information leakage, or counterparty risk.
-
-## Language Stack: Hybrid Rust-Go Architecture
-
-**Architecture Decision: Multi-Language Approach**
-
-BlackTrace uses a hybrid architecture combining Rust and Go, with each language handling what it does best:
-
-### Go: Networking Layer (`blacktrace-go/`)
-- **Why Go**: Channel-based concurrency prevents mutex deadlocks
-- **libp2p**: Battle-tested P2P framework (used by IPFS, Filecoin, Ethereum 2.0)
-- **Security**: Noise protocol encryption, peer authentication
-- **Discovery**: Automatic mDNS peer discovery with bootstrap pattern
-- **Messaging**: Gossipsub for broadcasts, direct streams for P2P
-
-### Rust: Cryptography & Blockchain (`src/`)
-- **Why Rust**: Memory safety, zero-cost abstractions, mature crypto ecosystem
-- **Cryptography**: Blake2b commitments, nullifiers, ZK proofs
-- **Zcash L1**: Native integration with `zcash_primitives` and `orchard` crates
-- **Type Safety**: Strong compile-time guarantees for financial operations
-
-### Integration: FFI/cgo (Future Work)
-```
-┌─────────────────────────────────────────┐
-│ Go Application (main process)          │
-│ - libp2p networking                     │
-│ - Peer discovery & messaging            │
-│ - Application state management          │
-└─────────────────┬───────────────────────┘
-                  │ FFI/cgo calls
-                  ↓
-┌─────────────────────────────────────────┐
-│ Rust Library (.so/.dylib)              │
-│ - Blake2b commitments                   │
-│ - Nullifier generation                  │
-│ - Zcash Orchard HTLC creation          │
-│ - ZK proof verification                 │
-└─────────────────────────────────────────┘
-```
-
-**Rationale**: Initial Rust-only implementation encountered Arc<Mutex<>> deadlocks during concurrent message handling. Go's channel-based architecture solved this elegantly while maintaining production-grade P2P capabilities through libp2p.
-
-## Four-Layer System Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│ Layer 1: CLI & User Interface                          │
-│ - Command-line interface for node operations           │
-│ - Order management, negotiation, queries                │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│ Layer 2: Application Logic (Off-Chain)                 │
-│ ┌─────────────┐ ┌──────────────┐ ┌─────────────────┐  │
-│ │ P2P Network │ │ ZK Commitments│ │ Negotiation     │  │
-│ │ Manager     │ │ & Proofs      │ │ Engine          │  │
-│ └─────────────┘ └──────────────┘ └─────────────────┘  │
-│ ┌─────────────┐ ┌──────────────┐ ┌─────────────────┐  │
-│ │ Settlement  │ │ Blockchain   │ │ Transaction     │  │
-│ │ Coordinator │ │ Monitor      │ │ Builder         │  │
-│ └─────────────┘ └──────────────┘ └─────────────────┘  │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│ Layer 3: L2 Smart Contracts (Ztarknet)                 │
-│ - Cairo HTLC contracts for USDC                         │
-│ - Privacy-preserving settlement logic                   │
-│ - Asset tokenization (USDC on Ztarknet)                │
-└─────────────────────────────────────────────────────────┘
-                          ↓
-┌─────────────────────────────────────────────────────────┐
-│ Layer 4: L1 Blockchain (Zcash)                         │
-│ - Shielded Orchard HTLC for ZEC                        │
-│ - Native ZEC transfers                                  │
-│ - Final settlement layer                                │
-└─────────────────────────────────────────────────────────┘
-```
-
-## Core Components (Implemented)
-
-### 1. Types System (`src/types.rs`)
-
-Foundation types used throughout BlackTrace:
-
-- **OrderID**: Timestamp-based unique identifiers for orders
-- **PeerID**: Derived from public key hash for P2P identity
-- **Hash**: Blake2b-256 wrapper for commitments
-- **SecretPreimage**: HTLC secrets with hashing capability
-- **OrderType**: Buy/Sell enumeration
-- **StablecoinType**: USDC/USDT/DAI support
-
-### 2. Error Handling (`src/error.rs`)
-
-Comprehensive error system with 30+ variants:
-- Network errors (connection, timeouts, protocol)
-- Cryptographic errors (proof verification, commitment)
-- Business logic errors (insufficient balance, order not found)
-- Blockchain errors (transaction, RPC, block parsing)
-
-### 3. P2P Network Manager (`blacktrace-go/network.go`)
-
-**Implementation**: Go with libp2p (production-grade P2P stack)
-
-**Key Features:**
-- **Transport Security**: Noise protocol (encrypted connections)
-- **Multiplexing**: yamux (multiple streams over single connection)
-- **Peer Discovery**: mDNS automatic local discovery with bootstrap pattern
-- **Messaging**:
-  - Gossipsub for broadcasts (order announcements, proposals)
-  - Direct streams for P2P (order details, private negotiations)
-- **Architecture**: Channel-based (no mutex deadlocks)
-
-**Bootstrap Pattern:**
-```
-Node A (port 19000) = Bootstrap node (passive, only accepts)
-Node B (port 19001) = Regular node (active, discovers and dials)
-```
-This prevents bidirectional dial race conditions in mDNS discovery.
-
-**Message Flow:**
-```
-Broadcast (pubsub):          Direct Stream (P2P):
-┌─────────┐                 ┌─────────┐
-│ Node A  │──┐              │ Node A  │───────────┐
-└─────────┘  │              └─────────┘           │
-             ↓                                     ↓
-         ┌────────┐                           ┌─────────┐
-         │ Topic  │                           │ Node B  │
-         └────────┘                           └─────────┘
-             ↓
-┌─────────┐  │
-│ Node B  │←─┘
-└─────────┘
-
-Examples:                    Examples:
-- Order announcements        - Order detail requests
-- Price proposals            - Order detail responses
-```
-
-**Protocol (Stream Messages):**
-```
-┌──────────────┬────────────────────────┐
-│ Length (4B)  │ Payload (variable)     │
-│ Big Endian   │ JSON serialized msg    │
-└──────────────┴────────────────────────┘
-```
-
-**Channel Architecture (Key Innovation):**
-```go
-type NetworkManager struct {
-    eventCh   chan NetworkEvent   // Output: events TO app
-    commandCh chan NetworkCommand // Input: commands FROM app
-    // NO mutexes for messages - prevents deadlocks!
-}
-```
-
-**Rust Version (Reference)**: Initial custom TCP implementation in `src/p2p/` encountered Arc<Mutex<>> deadlocks during concurrent negotiation. Code preserved for cryptography integration but networking moved to Go.
-
-### 4. Zero-Knowledge Commitments (`src/crypto/`)
-
-**Commitment Scheme:**
-```
-commitment_hash = Hash(amount || salt)
-nullifier = Hash(viewing_key || order_id)
-```
-
-**Purpose:**
-- Prove liquidity without revealing exact amounts
-- Prevent double-spending via nullifiers
-- Privacy-preserving order announcements
-
-**Types:**
-- `LiquidityCommitment`: Public commitment with nullifier
-- `CommitmentOpening`: Private opening (amount + salt)
-- `Nullifier`: Prevents order reuse
-
-### 5. Negotiation Engine (`src/negotiation/`)
-
-**State Machine:**
-```
-DetailsRequested → DetailsRevealed → PriceDiscovery → TermsAgreed
-                                                    ↘ Cancelled
-```
-
-**Roles:**
-- **Maker**: Creates and publishes orders
-- **Taker**: Discovers and negotiates on orders
-
-**Session Management:**
-- Per-order negotiation tracking
-- Multi-round proposal history
-- Counterparty identification
-- State validation and transitions
-
-**Flow:**
-1. Taker requests order details from Maker
-2. Maker reveals full order details (amount, price range)
-3. Multi-round price discovery (proposals/counter-proposals)
-4. Both parties agree on final terms
-5. Settlement terms signed by both parties
-
-### 6. CLI & Application (`src/cli/`)
-
-**BlackTraceApp Integration Layer:**
-- Combines NetworkManager, NegotiationEngine, OrderStorage
-- Event loop for handling network messages
-- Order lifecycle management
-- Negotiation coordination
-
-**Commands:**
-- `node --port <PORT> --connect <PEER>`: Start node and optionally connect
-- `order create/list/cancel`: Order management
-- `negotiate request/propose/accept/cancel`: Negotiation flow
-- `query peers/orders/negotiations`: Information queries
-
-## Two-Layer HTLC Atomic Swap
-
-### Architecture
-
-BlackTrace achieves atomic ZEC ↔ USDC swaps using **two HTLCs on different layers** with the **same secret**:
-
-| Layer | Asset | HTLC Location | Technology |
-|-------|-------|---------------|------------|
-| Zcash L1 | ZEC (from Maker) | Shielded Orchard Protocol | Native Zcash HTLC |
-| Ztarknet L2 | USDC (from Taker) | Cairo Smart Contract | Cairo HTLC Contract |
-
-### Atomic Execution Flow
-
-#### Phase 1: Commitment (Lock Assets)
-
-**Step 1 - Maker Locks ZEC (L1):**
-```
-Action: Lock ZEC in shielded Orchard address
-Condition: Can only be claimed with secret S OR refunded after timeout
-Result: ZEC locked privately on L1
-```
-
-**Step 2 - Taker Locks USDC (L2):**
-```
-Action: Lock USDC in Cairo HTLC contract
-Condition: Can only be claimed with same secret S OR refunded after timeout
-Result: USDC locked trustlessly on L2
-```
-
-#### Phase 2: Execution (Reveal & Claim)
-
-**Step 3 - Maker Claims USDC (L2):**
-```
-Action: Maker sends transaction to L2 revealing secret S
-Verification: Cairo contract verifies Hash(S) matches commitment
-Result: USDC released to Maker
-CRITICAL: Secret S now publicly visible on L2
-```
-
-**Step 4 - Taker Claims ZEC (L1):**
-```
-Action: Taker's monitor detects S on L2, constructs L1 claim transaction
-Verification: Zcash protocol verifies S matches HTLC
-Result: ZEC released to Taker
-```
-
-### Atomicity Guarantee
-
-The hash timelock contract logic ensures:
-
-1. **If Maker reveals S**: Taker is guaranteed to see S and claim ZEC before timeout
-2. **If Maker doesn't reveal S**: Both parties can reclaim their original assets after timeout
-3. **No counterparty risk**: Neither party can steal the other's assets
-4. **Privacy preserved**: ZEC transfers remain shielded on L1
-
-### Timelock Parameters
-
-```rust
-pub struct SettlementTerms {
-    pub secret_hash: Hash,        // Hash(S)
-    pub timelock_blocks: u32,     // e.g., 144 blocks (~24 hours)
-    // L2 timeout must be shorter than L1 timeout
-    // Ensures Taker has time to claim after seeing S on L2
-}
-```
-
-## Data Flow: Complete Trade Lifecycle
-
-### 1. Order Creation & Broadcast
-
-```
-Maker (Node A)
-  ↓
-  1. Generate commitment: Hash(amount || salt)
-  2. Generate nullifier: Hash(viewing_key || order_id)
-  3. Create OrderAnnouncement (public)
-     - order_id
-     - order_type (Buy/Sell)
-     - stablecoin (USDC/USDT/DAI)
-     - proof_commitment (hides amount)
-     - timestamp, expiry
-  4. Broadcast to P2P network
-  ↓
-All Connected Peers (Node B, C, D...)
-  - Receive OrderAnnouncement
-  - Store in local order book
-  - Verify commitment (future: ZK proof verification)
-```
-
-### 2. Order Discovery & Interest
-
-```
-Taker (Node B)
-  ↓
-  1. Query local order book
-  2. Filter by: stablecoin, order_type, expiry
-  3. Select interesting order
-  4. Request full order details from Maker
-  ↓
-Maker (Node A)
-  ← NegotiationMessage::RequestDetails
-  → NegotiationMessage::RevealDetails
-     - amount (revealed)
-     - min_price, max_price (revealed)
-```
-
-### 3. Multi-Round Negotiation
-
-```
-Taker proposes: price=450, amount=10000 ZEC
-  → Maker receives proposal
-    Maker counter-proposes: price=460, amount=10000 ZEC
-  ← Taker receives counter
-    Taker accepts: price=460
-  → Maker receives acceptance
-    Both parties agree on terms
-```
-
-### 4. Settlement Preparation (Off-Chain)
-
-```
-Final Terms Agreed:
-  - ZEC amount: 10,000
-  - USDC amount: 4,600,000 (10,000 * 460)
-  - Secret hash: Hash(S)
-  - Maker address: zs1maker...
-  - Taker address: zs1taker...
-  - Timelock: 144 blocks
-
-Both parties sign settlement terms
-  → Ready for on-chain execution
-```
-
-### 5. On-Chain Settlement (Future Implementation)
-
-```
-Phase 1: Commitment
-  Maker → Zcash L1: Lock 10,000 ZEC with Hash(S)
-  Taker → Ztarknet L2: Lock 4,600,000 USDC with Hash(S)
-
-Phase 2: Execution
-  Maker → Ztarknet L2: Reveal S, claim USDC
-  Blockchain Monitor → Detects S on L2
-  Taker → Zcash L1: Use S, claim ZEC
-
-Result: Atomic swap complete
-```
-
-## Message Types & Protocols
-
-### P2P Network Messages
-
-```rust
-pub enum NetworkMessage {
-    OrderAnnouncement(OrderAnnouncement),
-    OrderInterest(OrderInterest),
-    NegotiationMessage(Vec<u8>),  // Encrypted negotiation data
-    SettlementCommit(Vec<u8>),     // Settlement signatures
-}
-```
-
-### Negotiation Protocol Messages
-
-```rust
-// Request order details (Taker → Maker)
-RequestDetails { order_id }
-
-// Reveal order details (Maker → Taker)
-RevealDetails {
-    order_id,
-    amount,
-    min_price,
-    max_price,
-    stablecoin,
-}
-
-// Price proposal (Either party)
-ProposeTerms {
-    order_id,
-    price,
-    amount,
-}
-
-// Accept and finalize (Either party)
-AcceptTerms {
-    order_id,
-    settlement_terms,
-    signature,
-}
-
-// Cancel negotiation (Either party)
-CancelNegotiation {
-    order_id,
-    reason,
-}
-```
-
-## Implementation Status
-
-### ✅ Completed Components
-
-1. **Core Types & Error Handling** - 11 tests passing
-2. **P2P Network Manager** - 4 integration tests passing
-3. **ZK Commitment Scheme** - 11 tests passing
-4. **Negotiation Engine** - 16 tests passing
-5. **CLI & Application Layer** - Integrated, all 42 tests passing
-
-**Total: 42 tests passing, ~1500 lines of production code**
-
-### 🚧 Pending Components
-
-6. **Zcash L1 RPC Client**
-   - Connect to Zcash node
-   - Construct shielded Orchard transactions
-   - Build L1 HTLC transactions
-   - Query blockchain state
-
-7. **Ztarknet L2 Client**
-   - Connect to Ztarknet sequencer
-   - Interact with Cairo HTLC contracts
-   - Query L2 state and events
-   - Submit transactions
-
-8. **Two-Layer Settlement Coordinator**
-   - Orchestrate dual-layer HTLCs
-   - Secret generation and management
-   - Coordinate timeouts
-   - Handle refund scenarios
-
-9. **Dual-Layer Blockchain Monitor**
-   - Watch Zcash L1 for HTLC events
-   - Watch Ztarknet L2 for secret reveals
-   - Alert on timeout conditions
-   - Trigger automated claims
-
-10. **End-to-End Testing**
-    - Two-node off-chain workflow
-    - Full atomic swap simulation
-    - Timeout and refund scenarios
-    - Security testing
-
-## Security Considerations
-
-### Privacy Guarantees
-
-1. **Order Commitments**: Amounts hidden until negotiation begins
-2. **Shielded Transfers**: ZEC transfers use Orchard shielded addresses
-3. **Encrypted Negotiation**: Price discovery happens off-chain, privately
-4. **Nullifiers**: Prevent double-spending without revealing order details
-
-### Atomicity Guarantees
-
-1. **HTLC Mechanism**: Both parties either swap or get refunds
-2. **Same Secret**: S used on both L1 and L2 ensures atomic execution
-3. **Timelock Safety**: Properly ordered timeouts prevent fund loss
-4. **No Counterparty Risk**: Smart contracts enforce fair exchange
-
-### Potential Attack Vectors & Mitigations
-
-1. **Front-running**:
-   - L2 secret reveal is public
-   - Mitigation: Sufficient time gap for Taker to claim on L1
-
-2. **Timeout Griefing**:
-   - Maker locks ZEC but never reveals secret
-   - Mitigation: Timelock allows refund after expiry
-
-3. **Network Partition**:
-   - Taker's monitor offline when secret revealed
-   - Mitigation: Redundant monitoring, generous timelock period
-
-4. **ZK Proof Forgery**:
-   - False liquidity commitments
-   - Mitigation: Proper proof verification (to be implemented)
-
-## Design Decisions & Rationale
-
-### 1. Minimal TCP vs libp2p
-
-**Decision**: Custom TCP implementation
-
-**Rationale**:
-- libp2p had severe dependency conflicts (base64ct edition2024, icu_* crates)
-- Spent hours debugging without resolution
-- Custom TCP: ~350 lines, works reliably, no external dependencies
-- Trade-off: Manual peer discovery vs automatic DHT
-- For hackathon/MVP: Simplicity and reliability > feature richness
-
-### 2. Off-Chain Negotiation First
-
-**Decision**: Build complete CLI workflow before on-chain integration
-
-**Rationale**:
-- Test P2P networking in isolation
-- Validate negotiation state machine independently
-- Faster iteration without blockchain dependencies
-- Easier debugging and testing
-- Can demo off-chain coordination immediately
-
-### 3. Two-Layer HTLC vs Single Layer
-
-**Decision**: Dual-layer atomic swap (Zcash L1 + Ztarknet L2)
-
-**Rationale**:
-- USDC exists on Ztarknet L2, not Zcash L1
-- Native ZEC on L1, tokenized USDC on L2
-- Same secret ensures atomic swap across layers
-- L2 provides privacy and efficiency for stablecoin operations
-- L1 provides security and finality for ZEC
-
-### 4. Hash Commitments vs Full ZK Proofs
-
-**Decision**: Start with hash-based commitments, add ZK later
-
-**Rationale**:
-- Hash commitments sufficient for MVP liquidity privacy
-- Full ZK proofs (range proofs, etc.) add complexity
-- Can upgrade commitment scheme without changing architecture
-- Focus on end-to-end workflow first
-
-## Future Enhancements
-
-### Phase 2: Enhanced Privacy
-- Range proofs for commitment amounts
-- Encrypted P2P channels
-- Anonymous credential system
-- Decentralized peer discovery
-
-### Phase 3: Advanced Features
-- Multi-party trades (>2 participants)
-- Partial fill support
-- Order book aggregation
-- Price oracle integration
-
-### Phase 4: Production Hardening
-- Byzantine fault tolerance
-- Formal verification of HTLC logic
-- Audit of cryptographic implementations
-- Stress testing and benchmarking
-
-## References
-
-- Zcash Orchard Protocol: https://zips.z.cash/protocol/protocol.pdf
-- HTLC Atomic Swaps: https://en.bitcoin.it/wiki/Hash_Time_Locked_Contracts
-- Ztarknet: Privacy-preserving L2 for Zcash (in development)
-- Cairo: StarkWare's smart contract language
+Zero-knowledge OTC protocol for institutional Zcash trading with dual-layer settlement.
 
 ---
 
-**Document Version**: 1.0
-**Last Updated**: 2025-11-16
-**Components Complete**: 7/13 (54%)
-**Tests Passing**: 42
-**Lines of Code**: ~1500
+## System Overview
+
+BlackTrace is a decentralized peer-to-peer protocol for secure, private OTC (over-the-counter) trading of Zcash with stablecoin settlement. The system combines off-chain negotiation with on-chain atomic settlement across two layers:
+
+- **Layer 1 (Zcash)**: Shielded ZEC transfers using Orchard HTLCs
+- **Layer 2 (Ztarknet)**: Stablecoin transfers using Cairo HTLCs
+
+---
+
+## Architecture Layers
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     CLI Commands                             │
+│  (auth, order, negotiate, query, node)                      │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ HTTP + Session Token
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│              Authentication Layer (NEW)                      │
+│  - Session management (24-hour expiration)                  │
+│  - Identity storage (encrypted ECDSA keypairs)              │
+│  - Password-based key derivation (PBKDF2)                   │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ Check auth, load user keys
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│              Application Layer                               │
+│  - Order management                                          │
+│  - Proposal tracking                                         │
+│  - Negotiation state machine                                 │
+│  - Business logic                                            │
+└─────────────────────┬───────────────────────────────────────┘
+                      │ Broadcast/send messages
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│              P2P Network Layer                               │
+│  - libp2p with Noise encryption                             │
+│  - Gossipsub for broadcasts                                  │
+│  - Direct streams for sensitive data                         │
+│  - mDNS peer discovery                                       │
+└─────────────────────┬───────────────────────────────────────┘
+                      │
+                      ↓
+┌─────────────────────────────────────────────────────────────┐
+│          Blockchain Settlement Layer (Future)                │
+│  - Zcash L1: Orchard shielded HTLC                          │
+│  - Ztarknet L2: Cairo HTLC with same secret                 │
+│  - Dual-layer atomic swap coordinator                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Layer Details
+
+### 1. CLI Commands Layer
+
+**Purpose**: User interface for interacting with BlackTrace nodes
+
+**Components**:
+- `cmd/root.go` - CLI application entry point
+- `cmd/auth.go` - Authentication commands (register, login, logout, whoami)
+- `cmd/order.go` - Order management (create, list)
+- `cmd/negotiate.go` - Negotiation (request, propose, list-proposals, accept)
+- `cmd/query.go` - Network queries (status, peers)
+- `cmd/node.go` - Node management (start, list, kill-all)
+
+**Communication**:
+- HTTP REST API to local or remote nodes
+- Session tokens stored in `~/.blacktrace/session.json`
+- API URL configurable via `--api-url` flag
+
+---
+
+### 2. Authentication Layer
+
+**Purpose**: User identity management and session authentication
+
+**Files**:
+- `node/identity.go` - ECDSA keypair generation and encrypted storage
+- `node/auth.go` - Session management and authentication
+- `node/api.go` - Auth endpoints (register, login, logout, whoami)
+
+**Security Design**:
+
+#### Identity Storage
+- **Keypair**: ECDSA P-256 (secp256r1)
+- **Encryption**: AES-256-GCM with random nonce
+- **Key Derivation**: PBKDF2-HMAC-SHA256 (100,000 iterations)
+- **Salt**: Random 32-byte salt per identity
+- **Location**: `~/.blacktrace/identities/{username}.json`
+
+#### Session Management
+- **Session ID**: 64 hex characters (32 random bytes)
+- **Expiration**: 24 hours from login
+- **Storage**: In-memory map (thread-safe with RWMutex)
+- **Cleanup**: Automatic hourly cleanup of expired sessions
+- **Persistence**: Session ID saved to `~/.blacktrace/session.json` for CLI
+
+#### Workflow
+1. **Registration**: User provides username/password → Generate ECDSA keypair → Encrypt private key → Save to disk
+2. **Login**: User provides credentials → Decrypt private key → Create session → Return session ID
+3. **Authentication**: CLI includes session ID in requests → Server validates session → Loads user keys → Executes operation
+
+**Design Decision**: One node = One user identity
+- Simplifies key management
+- Clear ownership of orders and proposals
+- Future: Can support multi-user via shared infrastructure nodes
+
+---
+
+### 2.5. Cryptography Layer (NEW - Phase 2B)
+
+**Purpose**: Message-level encryption and authentication for dark OTC coordination
+
+**Files**:
+- `node/crypto.go` - ECIES encryption and ECDSA signing
+- `node/crypto_test.go` - Comprehensive cryptographic test suite
+
+**Cryptographic Primitives**:
+
+#### ECDSA Message Signatures
+- **Curve**: P-256 (secp256r1) - same as identity keys
+- **Hash**: SHA-256
+- **Encoding**: ASN.1 DER format
+- **Purpose**: Authenticate all P2P messages, prevent tampering and impersonation
+
+**Implementation**:
+```go
+type SignedMessage struct {
+    Type            string          // Message type (e.g., "order_announcement")
+    Payload         json.RawMessage // Original message payload
+    Signature       []byte          // ECDSA signature over (type + payload)
+    SignerPublicKey []byte          // 65-byte uncompressed public key
+    Timestamp       int64           // Unix timestamp (replay protection)
+}
+```
+
+**All messages are signed**: Order announcements, proposals, order requests, encrypted order details
+
+#### ECIES Encryption (Elliptic Curve Integrated Encryption Scheme)
+- **Purpose**: End-to-end encryption for sensitive order details (amounts, price ranges)
+- **Components**:
+  1. **ECDH Key Agreement**: Ephemeral keypair + recipient's public key → shared secret
+  2. **Key Derivation**: HKDF-SHA256 with "blacktrace-ecies" context
+  3. **Encryption**: AES-256-GCM (authenticated encryption)
+  4. **Forward Secrecy**: New ephemeral key per message
+
+**Message Structure**:
+```go
+type ECIESEncryptedMessage struct {
+    EphemeralPublicKey []byte // 65 bytes - unique per message (forward secrecy)
+    Nonce              []byte // 12 bytes - GCM nonce
+    Ciphertext         []byte // Variable length
+    AuthTag            []byte // 16 bytes - GCM authentication tag
+}
+```
+
+**Wire Format**: Compact serialization for network transmission (~100 bytes overhead)
+
+#### Security Properties
+- **Confidentiality**: Only intended recipient can decrypt order details
+- **Authenticity**: All messages cryptographically signed by sender
+- **Integrity**: Tampered messages detected and rejected
+- **Forward Secrecy**: Past messages safe even if keys compromised
+- **Non-Repudiation**: Signed messages prove sender identity
+- **MitM Detection**: Public key caching detects key changes
+
+#### Peer Public Key Management
+- **Caching**: First signed message from peer → cache public key
+- **Verification**: Subsequent messages verified against cached key
+- **MitM Detection**: Key change triggers warning (possible attack)
+- **Usage**: Cached keys used for ECIES encryption to that peer
+
+**Workflow**:
+1. **Login** → Initialize CryptoManager with user's private key
+2. **Outbound**: Sign message with ECDSA → Broadcast/Send
+3. **Inbound**: Verify signature → Cache peer public key → Process message
+4. **Encrypted Details**: Look up peer's cached public key → ECIES encrypt → Sign → Send
+
+**Backward Compatibility**: Graceful degradation to unsigned messages if CryptoManager not initialized
+
+**Real-World Usage**: Same cryptography as Ethereum (Whisper), Bitcoin (Lightning), Signal Protocol
+
+---
+
+### 3. Application Layer
+
+**Purpose**: Core business logic for OTC trading workflow
+
+**Files**:
+- `node/app.go` - Main application orchestration
+- `node/types.go` - Data structures (Order, Proposal, etc.)
+
+**Components**:
+
+#### Order Management
+- **OrderID**: Timestamp-based unique identifiers (`order_{unix_timestamp}`)
+- **Storage**: In-memory map with RWMutex
+- **Types**: Sell orders (makers post, takers respond)
+- **Broadcast**: Orders announced via gossipsub to all peers
+
+#### Proposal Tracking
+- **ProposalID**: `{orderID}_proposal_{timestamp_nano}`
+- **Status**: Pending, Accepted, Rejected
+- **Storage**: In-memory map with ProposalID → Proposal
+- **Proposer**: Tracked by peer ID
+
+#### Negotiation State Machine
+- **Phase 1**: Order announcement (broadcast to network)
+- **Phase 2**: Order details request (direct stream, encrypted)
+- **Phase 3**: Price proposals (multiple rounds)
+- **Phase 4**: Proposal acceptance
+- **Phase 5**: Settlement preparation (HTLC setup) - *Future*
+
+**Concurrency Model**:
+- Event-driven architecture with Go channels
+- Single goroutine processes network events (no mutex needed)
+- Single goroutine processes app commands (no mutex needed)
+- Read/write locks for order and proposal storage
+
+---
+
+### 4. P2P Network Layer
+
+**Purpose**: Peer-to-peer communication infrastructure
+
+**Files**:
+- `node/network.go` - libp2p network manager
+
+**Technology Stack**:
+- **libp2p**: P2P networking framework
+- **Noise Protocol**: Transport-layer encryption
+- **Gossipsub**: Pub/sub for broadcast messages
+- **Direct Streams**: Point-to-point for sensitive data
+- **mDNS**: Automatic local peer discovery
+
+**Message Types**:
+
+| Message Type | Transport | Signed | Encrypted | Purpose |
+|-------------|-----------|--------|-----------|---------|
+| `order_announcement` | Gossipsub | ✅ | ❌ | Broadcast order metadata to all peers |
+| `order_request` | Gossipsub | ✅ | ❌ | Request full order details |
+| `order_details` | Direct Stream | ✅ | ❌ | Send order details (legacy, unencrypted) |
+| `encrypted_order_details` | Direct Stream | ✅ | ✅ (ECIES) | Send encrypted order details (Phase 2B) |
+| `proposal` | Gossipsub | ✅ | ❌ | Broadcast price proposals |
+| `proposal_acceptance` | Direct Stream | ✅ | ❌ | Accept specific proposal (future) |
+
+**Security Layers**:
+1. **Transport**: Noise protocol encryption (all P2P communication) ✅
+2. **Application**: ECIES encryption for order details (Phase 2B) ✅
+3. **Identity**: ECDSA signatures on all messages (Phase 2B) ✅
+
+**Peer Discovery**:
+- **mDNS**: Automatic discovery on local networks
+- **Manual**: Connect via multiaddr (`--connect` flag)
+- **Bootstrap**: DHT bootstrap nodes (future)
+
+---
+
+### 5. Blockchain Settlement Layer (Future)
+
+**Purpose**: Atomic cross-chain settlement of negotiated trades
+
+#### Zcash Layer 1 (Shielded HTLC)
+- **Protocol**: Orchard shielded pool
+- **Contract**: HTLC with hash preimage reveal
+- **Privacy**: Fully shielded ZEC transfer
+- **Expiry**: Time-locked with refund mechanism
+
+#### Ztarknet Layer 2 (Cairo HTLC)
+- **Protocol**: Cairo smart contract on Starknet
+- **Contract**: HTLC with same hash as L1
+- **Asset**: USDC/USDT/DAI stablecoins
+- **Expiry**: Coordinated with L1 timelock
+
+#### Atomic Swap Coordinator
+- **Secret Generation**: 256-bit random preimage
+- **Hash Function**: SHA256
+- **L1 Setup**: Maker locks ZEC with hash
+- **L2 Setup**: Taker locks stablecoin with same hash
+- **Claim**: Taker reveals secret to claim ZEC, Maker uses same secret to claim stablecoin
+- **Refund**: Time-locked refunds if swap fails
+
+---
+
+## Data Flow
+
+### Off-Chain Negotiation Flow
+
+```
+Maker (Node A)                           Taker (Node B)
+     │                                        │
+     │  1. Register/Login                     │  1. Register/Login
+     │     auth register                      │     auth register
+     │     auth login                         │     auth login
+     │                                        │
+     │  2. Create Order                       │
+     │     POST /orders/create                │
+     │     ↓                                  │
+     │  [Gossipsub Broadcast]─────────────────→  3. See Order
+     │     "order_announcement"               │     GET /orders
+     │                                        │
+     │                                        │  4. Request Details
+     │  ←─────────────────────────────────────     POST /negotiate/request
+     │     "order_request"                    │
+     │     ↓                                  │
+     │  5. Send Details                       │
+     │     "order_details" (direct stream)────→
+     │                                        │
+     │                                        │  6. Propose Price
+     │  ←─────────────────────────────────────     POST /negotiate/propose
+     │     "proposal" (gossipsub)             │
+     │     ↓                                  │
+     │  7. List Proposals                     │
+     │     GET /negotiate/proposals           │
+     │     ↓                                  │
+     │  8. Accept Proposal                    │
+     │     POST /negotiate/accept             │
+     │                                        │
+     │  [Ready for Settlement]                │  [Ready for Settlement]
+     │                                        │
+```
+
+### On-Chain Settlement Flow (Future)
+
+```
+Maker (Node A)                           Taker (Node B)
+     │                                        │
+     │  1. Generate HTLC Secret               │
+     │     secret = random(256 bits)          │
+     │     hash = SHA256(secret)              │
+     │                                        │
+     │  2. Create L1 HTLC                     │  3. Verify L1 HTLC
+     │     Lock 10,000 ZEC                    │     Check hash, amount, expiry
+     │     Expiry: 24 hours                   │
+     │                                        │
+     │                                        │  4. Create L2 HTLC
+     │  5. Verify L2 HTLC       ←────────────     Lock $4,600,000 USDC
+     │     Check hash matches                 │     Same hash, Expiry: 12 hours
+     │                                        │
+     │                                        │  6. Claim L1 ZEC
+     │  7. Observe Secret ←───────────────────     Reveal secret to claim
+     │     Monitor L1 transactions            │     Receive 10,000 ZEC
+     │     ↓                                  │
+     │  8. Claim L2 USDC                      │
+     │     Use revealed secret                │
+     │     Receive $4,600,000 USDC            │
+     │                                        │
+     │  [Swap Complete]                       │  [Swap Complete]
+```
+
+---
+
+## API Endpoints
+
+### Authentication
+- `POST /auth/register` - Register new user identity
+- `POST /auth/login` - Authenticate and create session
+- `POST /auth/logout` - Terminate session
+- `POST /auth/whoami` - Get current session info
+
+### Orders
+- `POST /orders/create` - Create and broadcast order
+- `GET /orders` - List all known orders
+
+### Negotiation
+- `POST /negotiate/request` - Request order details
+- `POST /negotiate/propose` - Propose a price
+- `POST /negotiate/proposals` - List proposals for an order
+- `POST /negotiate/accept` - Accept a specific proposal
+
+### Network
+- `GET /status` - Node status (peer ID, peer count, order count)
+- `GET /peers` - List connected peers
+- `GET /health` - Health check
+
+---
+
+## File Structure
+
+```
+blacktrace-go/
+├── cmd/                    # CLI commands
+│   ├── root.go            # CLI entry point
+│   ├── auth.go            # Auth commands (NEW)
+│   ├── order.go           # Order commands
+│   ├── negotiate.go       # Negotiation commands
+│   ├── query.go           # Query commands
+│   └── node.go            # Node management
+│
+├── node/                   # Core application
+│   ├── app.go             # Main application logic
+│   ├── identity.go        # Identity management (NEW)
+│   ├── auth.go            # Authentication & sessions (NEW)
+│   ├── api.go             # HTTP API server
+│   ├── network.go         # P2P networking
+│   └── types.go           # Data structures
+│
+├── docs/                   # Documentation
+│   ├── ARCHITECTURE.md    # This file
+│   ├── CLI_TESTING.md     # CLI testing guide
+│   └── TWO_NODE_DEMO.md   # Two-node demo guide
+│
+├── two_node_demo.sh       # Automated two-node demo
+├── TWO_NODE_DEMO_README.md
+├── go.mod
+├── go.sum
+└── main.go
+```
+
+---
+
+## Key Design Decisions
+
+### 1. One User = One Node Identity
+**Rationale**: Simplifies key management and ownership tracking
+- Each node represents one trading entity
+- Clear attribution of orders and proposals
+- No shared key storage between multiple users
+- Future: Can support multi-user via authentication middleware on shared infrastructure
+
+### 2. P2P Layer Unchanged by Auth
+**Rationale**: Separation of concerns
+- P2P networking is infrastructure (connection, routing, discovery)
+- Authentication is application-layer concern (user identity, permissions)
+- Auth layer sits on top of P2P without modifying network protocols
+- Maintains backward compatibility with network layer
+
+### 3. In-Memory Session Storage
+**Rationale**: Simplicity and performance
+- Fast session validation (no disk I/O)
+- Automatic cleanup on node restart
+- Suitable for single-node deployments
+- Future: Redis/memcached for distributed session management
+
+### 4. Gossipsub for Order Broadcasts
+**Rationale**: Efficient message propagation
+- Orders need to reach all potential takers
+- No need for direct connections to all peers
+- Pub/sub scales better than point-to-point broadcasts
+- mDNS handles local discovery automatically
+
+### 5. Direct Streams for Sensitive Data
+**Rationale**: Privacy and security
+- Order details (exact amounts, price ranges) sent only to interested parties
+- Reduces information leakage
+- Enables future ECIES encryption of order details
+- Complements gossipsub for announcements
+
+---
+
+## Security Considerations
+
+### Current Implementation
+
+1. **Transport Encryption**: Noise protocol encrypts all P2P traffic
+2. **Identity Encryption**: Private keys encrypted at rest with AES-256-GCM
+3. **Session Security**: Random session tokens, 24-hour expiration
+4. **Key Derivation**: PBKDF2 with 100,000 iterations protects against brute force
+
+### Future Enhancements
+
+1. **Application-Level Encryption**:
+   - ECIES for order details
+   - Ephemeral ECDH for shared secrets
+   - HKDF-SHA256 for key derivation
+
+2. **Message Signatures**:
+   - ECDSA signatures on all messages
+   - Verify sender identity
+   - Prevent message tampering
+
+3. **Zero-Knowledge Proofs**:
+   - Proof of funds without revealing amounts
+   - Proof of authorization without revealing identity
+   - Range proofs for valid price ranges
+
+4. **Commitment Schemes**:
+   - Commit to order details before revealing
+   - Prevent front-running
+   - Enable atomic revelations
+
+---
+
+## Performance Characteristics
+
+### Off-Chain (Current)
+
+- **Order Creation**: ~1ms (in-memory + gossipsub broadcast)
+- **Proposal Submission**: ~1ms (in-memory storage + broadcast)
+- **Negotiation Rounds**: Unlimited (no blockchain constraints)
+- **Message Latency**: ~100ms (local network via mDNS)
+
+### On-Chain (Future)
+
+- **L1 HTLC Setup**: ~75 seconds (Zcash 75-second block time)
+- **L2 HTLC Setup**: ~1-5 seconds (Starknet fast finality)
+- **Secret Reveal**: ~75 seconds (Zcash confirmation)
+- **Settlement Finalization**: ~150 seconds (2 Zcash blocks)
+- **Total Swap Time**: ~5 minutes (worst case with confirmations)
+
+---
+
+## Scalability
+
+### Current (Off-Chain)
+
+- **Nodes**: Tested with 2 nodes, designed for 100s
+- **Orders**: Limited by memory (~1MB per 10,000 orders)
+- **Proposals**: Limited by memory (~1MB per 10,000 proposals)
+- **Network**: Gossipsub scales to 1000s of peers
+
+### Future (Hybrid)
+
+- **Off-Chain**: Millions of proposals, real-time negotiation
+- **On-Chain**: Thousands of settlements per day
+- **Optimization**: Batch settlements, Layer 2 aggregation
+
+---
+
+## Roadmap
+
+### Phase 1: Off-Chain Workflow ✅
+- [x] P2P networking with libp2p
+- [x] Order creation and broadcasting
+- [x] Negotiation and proposals
+- [x] Proposal tracking and acceptance
+- [x] User authentication layer
+- [x] CLI-node integration
+
+### Phase 2: Application-Level Encryption (Complete)
+- [x] Integrate auth into order/propose flows (Phase 2A - Complete)
+- [x] ECIES encryption for order details (Phase 2B - Complete)
+- [x] Message signatures with ECDSA (Phase 2B - Complete)
+- [x] Peer public key caching with MitM detection (Phase 2B)
+- [x] Backward compatibility with unsigned messages (Phase 2B)
+
+### Phase 3: On-Chain Settlement
+- [ ] HTLC secret generation
+- [ ] Zcash Orchard HTLC builder
+- [ ] Ztarknet Cairo HTLC contract
+- [ ] Dual-layer atomic swap coordinator
+- [ ] Blockchain monitors for secret reveals
+
+### Phase 4: Production Hardening
+- [ ] Persistent storage (SQLite/PostgreSQL)
+- [ ] Distributed session management
+- [ ] Rate limiting and abuse prevention
+- [ ] Comprehensive integration tests
+- [ ] Monitoring and observability
+
+---
+
+## Testing
+
+### Unit Tests
+- Identity encryption/decryption
+- Session management
+- HTLC secret generation
+
+### Integration Tests
+- Two-node P2P workflow
+- Order propagation
+- Proposal negotiation
+- Auth flow end-to-end
+
+### Demo Scripts
+- `two_node_demo.sh` - Automated two-node demo
+- See `TWO_NODE_DEMO_README.md` for details
+
+---
+
+**Last Updated**: 2025-11-19
+**Version**: 0.3.0 (Message Encryption & Signatures - Phase 2B)
+**Status**: Phase 1 Complete, Phase 2 Complete (2A + 2B), Phase 3 Next
