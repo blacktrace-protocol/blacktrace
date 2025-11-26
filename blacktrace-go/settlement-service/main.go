@@ -216,26 +216,11 @@ func (s *SettlementService) bootstrapZcash() error {
 	}
 	log.Printf("\n💰 Wallet balance: %.8f ZEC", balance)
 
-	// Create addresses for Alice and Bob
-	aliceAddr, err := s.zcashClient.GetNewAddress()
-	if err != nil {
-		return fmt.Errorf("failed to create Alice's address: %w", err)
-	}
-	s.aliceAddress = aliceAddr
-	log.Printf("\n👤 Alice's address: %s", aliceAddr)
-
-	bobAddr, err := s.zcashClient.GetNewAddress()
-	if err != nil {
-		return fmt.Errorf("failed to create Bob's address: %w", err)
-	}
-	s.bobAddress = bobAddr
-	log.Printf("👤 Bob's address:   %s", bobAddr)
-
-	// Ensure we have enough balance to fund addresses (need 2100+ ZEC)
+	// Ensure we have enough balance to fund user addresses on-demand (need 5000+ ZEC)
 	// Mine more blocks if needed
-	if balance < 2200 {
-		// Each block gives 10 ZEC, need 220+ blocks
-		blocksNeeded := 250 // Mine 250 blocks (2500 ZEC)
+	if balance < 5000 {
+		// Each block gives 10 ZEC, need 500+ blocks
+		blocksNeeded := 550 // Mine 550 blocks (5500 ZEC)
 		log.Printf("\n⛏️  Mining %d blocks slowly to build up balance (prevents median-time issues)...", blocksNeeded)
 		if err := s.mineBlocksSlowly(blocksNeeded, 3*time.Second); err != nil {
 			log.Printf("Warning: Failed to mine balance blocks: %v", err)
@@ -252,31 +237,8 @@ func (s *SettlementService) bootstrapZcash() error {
 		log.Printf("✓ Updated wallet balance: %.8f ZEC", balance)
 	}
 
-	// Fund Alice and Bob with test ZEC
-	log.Printf("\n💸 Funding test addresses...")
-
-	// Send 2000 ZEC to Alice (she's the maker who locks ZEC)
-	txid, err := s.zcashClient.SendToAddress(aliceAddr, 2000.0)
-	if err != nil {
-		log.Printf("Warning: Failed to fund Alice: %v", err)
-	} else {
-		log.Printf("✓ Funded Alice with 2000 ZEC (txid: %s)", txid[:16]+"...")
-	}
-
-	// Send 100 ZEC to Bob (for testing, though he mainly locks USDC)
-	txid, err = s.zcashClient.SendToAddress(bobAddr, 100.0)
-	if err != nil {
-		log.Printf("Warning: Failed to fund Bob: %v", err)
-	} else {
-		log.Printf("✓ Funded Bob with 100 ZEC (txid: %s)", txid[:16]+"...")
-	}
-
-	// Mine a block to confirm transactions
-	log.Printf("\n⛏️  Mining 1 block to confirm funding transactions...")
-	s.zcashClient.Generate(1)
-	log.Printf("✓ Funding transactions confirmed")
-
-	log.Println("\n✅ Zcash regtest node ready for HTLC settlements")
+	log.Printf("\n✅ Zcash regtest node ready for on-demand wallet creation and funding")
+	log.Printf("   Platform balance: %.2f ZEC available for funding user wallets", balance)
 	log.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n")
 
 	return nil
