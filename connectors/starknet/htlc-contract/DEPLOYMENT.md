@@ -139,3 +139,62 @@ For integration with the Go settlement service:
 2. Coordinate secrets between ZEC and STRK HTLCs
 3. Monitor contract events (Locked, Claimed, Refunded)
 4. Handle timeout scenarios for refunds
+
+## ⚠️ Cross-Chain Hash Compatibility Limitation
+
+### Current Status
+
+The current Starknet HTLC contract uses **Pedersen hash** for secret verification:
+```cairo
+let computed_hash = pedersen(secret, 0);
+assert(computed_hash == self.hash_lock.read(), 'Invalid secret');
+```
+
+However, the Zcash HTLC uses **RIPEMD160(SHA256(secret))** for verification.
+
+### What Works Now
+- ✅ Order creation and P2P negotiation
+- ✅ Alice locks ZEC in Zcash HTLC
+- ✅ Bob locks STRK in Starknet HTLC (using hash from Zcash)
+- ❌ **Claim fails** - Hash algorithms don't match between chains
+
+### Why This Matters
+
+For atomic swaps to work, both chains must use the **same hash function**:
+1. Settlement service generates `secret` and `hash = HASH(secret)`
+2. Alice locks ZEC with `hash`, requiring `secret` to unlock
+3. Bob locks STRK with same `hash`, requiring `secret` to unlock
+4. Alice reveals `secret` on Starknet to claim Bob's STRK
+5. Bob sees `secret` on-chain and uses it to claim Alice's ZEC
+
+If the hash functions differ, revealing the secret on one chain doesn't help unlock the other.
+
+### Solution: Upgrade to Cairo 2.7+
+
+Cairo 2.7+ introduced `sha256_process_block_syscall` which enables SHA256 hashing on Starknet.
+
+**To fix this:**
+
+1. **Upgrade Scarb** from 2.6.4 to 2.7.0+:
+   ```bash
+   curl --proto '=https' --tlsv1.2 -sSf https://docs.swmansion.com/scarb/install.sh | sh -s -- -v 2.7.0
+   ```
+
+2. **Update Scarb.toml**:
+   ```toml
+   [dependencies]
+   starknet = ">=2.7.0"
+   ```
+
+3. **Modify contract** to use SHA256:
+   ```cairo
+   use core::sha256::compute_sha256_u32_array;
+
+   // In claim function:
+   let hash_result = compute_sha256_u32_array(secret, 0, 0);
+   // Convert to u256 and compare with stored hash_lock
+   ```
+
+4. **Update Zcash HTLC** to use `OP_SHA256` instead of `OP_RIPEMD160`
+
+5. **Redeploy** the updated contract and update `HTLC_CONTRACT_ADDRESS` in frontend
