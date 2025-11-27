@@ -3,7 +3,7 @@ import { Account, RpcProvider, Contract, cairo, CallData, hash } from 'starknet'
 import HTLC_ABI from './htlc-abi.json';
 
 // HTLC Contract Configuration
-const HTLC_CONTRACT_ADDRESS = '0x8d55e048d8d4a7b8242a6f9543e8864679f00741cf8020e0aed9fc16ac9fc7';
+const HTLC_CONTRACT_ADDRESS = '0x063a3f321cd01e61968f85d43f523ebfef04a03c50f2c1876508be44dccfea05';
 const DEVNET_RPC_URL = 'http://127.0.0.1:5050/rpc';
 
 // Devnet pre-deployed accounts (for demo purposes)

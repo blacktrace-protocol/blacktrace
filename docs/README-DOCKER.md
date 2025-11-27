@@ -2,6 +2,45 @@
 
 This setup demonstrates the complete BlackTrace system with NATS-based settlement coordination.
 
+## Docker Compose Files
+
+BlackTrace uses **separate compose files** for core services and blockchain nodes:
+
+| File | Purpose |
+|------|---------|
+| `config/docker-compose.yml` | Core BlackTrace services (NATS, nodes, settlement) |
+| `config/docker-compose.blockchains.yml` | Blockchain devnet nodes (Zcash regtest, Starknet devnet) |
+
+### Running Core Services Only (Demo)
+
+For demonstrating encrypted P2P negotiation without actual HTLC settlement:
+
+```bash
+cd config
+docker-compose up
+```
+
+### Running Full Stack (With Blockchain Nodes)
+
+For testing actual HTLC settlement on regtest/devnet:
+
+```bash
+cd config
+docker-compose -f docker-compose.yml -f docker-compose.blockchains.yml up
+```
+
+### Environment Overrides
+
+You can override blockchain connection settings via environment variables:
+
+```bash
+# Use external Zcash node
+ZCASH_RPC_URL=http://my-zcash-node:8232 docker-compose up
+
+# Use Starknet Sepolia testnet
+STARKNET_RPC_URL=https://starknet-sepolia.infura.io/v3/YOUR_KEY docker-compose up
+```
+
 ## Architecture
 
 ```
@@ -25,9 +64,19 @@ This setup demonstrates the complete BlackTrace system with NATS-based settlemen
                   ▼
     ┌─────────────────────────┐
     │  Settlement Service     │
-    │  (Rust - Console Log)   │
+    │  (Rust)                 │
     │  Listens to NATS        │
-    └─────────────────────────┘
+    │  Port: 8090             │
+    └───────────┬─────────────┘
+                │
+    ┌───────────┴───────────┐
+    │   (Optional)          │
+    ▼                       ▼
+┌──────────────┐    ┌───────────────────┐
+│ Zcash Regtest│    │ Starknet Devnet   │
+│ Port: 18232  │    │ Port: 5050        │
+│ (Orchard)    │    │ (starknet-devnet) │
+└──────────────┘    └───────────────────┘
 ```
 
 ## Components
@@ -189,9 +238,16 @@ docker-compose up
 
 ## Ports
 
+### Core Services (docker-compose.yml)
 - `4222` - NATS client connections
 - `8222` - NATS HTTP monitoring
 - `8080` - Maker node HTTP API
 - `8081` - Taker node HTTP API
+- `8090` - Settlement service API
 - `19000` - Maker node P2P
 - `19001` - Taker node P2P
+
+### Blockchain Nodes (docker-compose.blockchains.yml)
+- `18232` - Zcash regtest RPC
+- `18233` - Zcash regtest P2P
+- `5050` - Starknet devnet RPC
