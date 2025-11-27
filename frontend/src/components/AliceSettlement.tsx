@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { aliceAPI } from '../lib/api';
 import { Lock, RefreshCw, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
+import { useStore } from '../lib/store';
 
 interface AliceSettlementProps {
   onCountChange?: (count: number) => void;
@@ -17,9 +18,16 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
   const [lockingProposal, setLockingProposal] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<number>(0);
 
+  // Get username from store
+  const currentUser = useStore((state) => state.alice.user);
+  const username = currentUser?.username;
+
   const fetchWalletBalance = async () => {
+    if (!username) return;
+
     try {
-      const response = await fetch('http://localhost:8090/api/alice/balance');
+      // Query node service which has user's wallet address
+      const response = await fetch(`http://localhost:8080/wallet/info?username=${username}`);
       if (response.ok) {
         const data = await response.json();
         setWalletBalance(data.balance);
@@ -82,14 +90,18 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
 
   useEffect(() => {
     fetchSettlementProposals();
-    fetchWalletBalance();
+    if (username) {
+      fetchWalletBalance();
+    }
     // Auto-refresh every 5 seconds
     const interval = setInterval(() => {
       fetchSettlementProposals();
-      fetchWalletBalance();
+      if (username) {
+        fetchWalletBalance();
+      }
     }, 5000);
     return () => clearInterval(interval);
-  }, []);
+  }, [username]);
 
   const handleLockZEC = async (proposalId: string, amountZEC: number) => {
     try {

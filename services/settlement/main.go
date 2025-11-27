@@ -66,12 +66,10 @@ type SettlementState struct {
 
 // SettlementService coordinates HTLC settlements
 type SettlementService struct {
-	nc           *nats.Conn
-	zcashClient  *zcash.Client
-	settlements  map[string]*SettlementState
-	mu           sync.RWMutex
-	aliceAddress string // Alice's Zcash address for demo
-	bobAddress   string // Bob's Zcash address for demo
+	nc          *nats.Conn
+	zcashClient *zcash.Client
+	settlements map[string]*SettlementState
+	mu          sync.RWMutex
 }
 
 // NewSettlementService creates a new settlement service
@@ -356,11 +354,12 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 		// Create HTLC on Zcash blockchain (amount is in cents, convert to ZEC)
 		amountZEC := update.Amount / 100 // Convert from cents to ZEC
 
-		// Use user's personal Zcash address if provided, otherwise fall back to admin address
+		// Use user's personal Zcash address (required)
 		zcashAddress := update.ZcashAddress
 		if zcashAddress == "" {
-			zcashAddress = s.aliceAddress
-			log.Printf("Warning: No user Zcash address provided, using admin address: %s", zcashAddress)
+			log.Printf("Error: No user Zcash address provided for HTLC lock")
+			s.mu.Unlock()
+			return
 		}
 
 		err := s.createZcashHTLC(state, amountZEC, zcashAddress)
@@ -515,61 +514,7 @@ func (s *SettlementService) Close() {
 	}
 }
 
-// HTTP API handlers for wallet balance queries
-
-// handleAliceBalance returns Alice's current ZEC balance
-func (s *SettlementService) handleAliceBalance(w http.ResponseWriter, r *http.Request) {
-	// Enable CORS
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	balance, err := s.zcashClient.GetAddressBalance(s.aliceAddress)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	response := map[string]interface{}{
-		"address": s.aliceAddress,
-		"balance": balance,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// handleBobBalance returns Bob's current ZEC balance
-func (s *SettlementService) handleBobBalance(w http.ResponseWriter, r *http.Request) {
-	// Enable CORS
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
-	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
-
-	if r.Method == "OPTIONS" {
-		w.WriteHeader(http.StatusOK)
-		return
-	}
-
-	balance, err := s.zcashClient.GetAddressBalance(s.bobAddress)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Failed to get balance: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	response := map[string]interface{}{
-		"address": s.bobAddress,
-		"balance": balance,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
+// HTTP API handlers for wallet operations
 
 // handleCreateAddress creates a new Zcash address
 func (s *SettlementService) handleCreateAddress(w http.ResponseWriter, r *http.Request) {
@@ -714,8 +659,6 @@ func (s *SettlementService) handleAddressBalance(w http.ResponseWriter, r *http.
 
 // StartHTTPServer starts the HTTP API server
 func (s *SettlementService) StartHTTPServer(port string) {
-	http.HandleFunc("/api/alice/balance", s.handleAliceBalance)
-	http.HandleFunc("/api/bob/balance", s.handleBobBalance)
 	http.HandleFunc("/api/create-address", s.handleCreateAddress)
 	http.HandleFunc("/api/fund-address", s.handleFundAddress)
 	http.HandleFunc("/api/address-balance", s.handleAddressBalance)
