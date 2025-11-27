@@ -13,6 +13,7 @@ interface BackendProposal {
   timestamp: string;
   status: string;
   settlement_status?: string;
+  hash_lock?: string;
 }
 
 // Map backend proposal format to frontend format
@@ -27,7 +28,8 @@ function mapProposal(backendProposal: BackendProposal): Proposal {
     encryptedData: backendProposal.encrypted_data,
     timestamp: backendProposal.timestamp,
     status: backendProposal.status.toLowerCase() as "pending" | "accepted" | "rejected",
-    settlement_status: backendProposal.settlement_status as "ready" | "alice_locked" | "bob_locked" | "both_locked" | "claiming" | "complete" | undefined,
+    settlement_status: backendProposal.settlement_status as "ready" | "alice_locked" | "bob_locked" | "both_locked" | "alice_claimed" | "claiming" | "complete" | undefined,
+    hash_lock: backendProposal.hash_lock,
   };
 }
 
@@ -147,10 +149,11 @@ export class BlackTraceAPI {
     return response.data;
   }
 
-  async lockZEC(proposalId: string): Promise<{ status: string; settlement_status: string }> {
-    const response = await this.client.post<{ status: string; settlement_status: string }>('/settlement/lock-zec', {
+  async lockZEC(proposalId: string, secret?: string): Promise<{ status: string; settlement_status: string; hash?: string }> {
+    const response = await this.client.post<{ status: string; settlement_status: string; hash?: string }>('/settlement/lock-zec', {
       proposal_id: proposalId,
       session_id: this.token, // Include session for user authentication and wallet lookup
+      secret: secret, // The secret Alice creates - backend will compute hash
     });
     return response.data;
   }
@@ -158,6 +161,15 @@ export class BlackTraceAPI {
   async lockUSDC(proposalId: string): Promise<{ status: string; settlement_status: string }> {
     const response = await this.client.post<{ status: string; settlement_status: string }>('/settlement/lock-usdc', {
       proposal_id: proposalId,
+    });
+    return response.data;
+  }
+
+  async claimZEC(proposalId: string, secret: string): Promise<{ status: string; settlement_status: string }> {
+    const response = await this.client.post<{ status: string; settlement_status: string }>('/settlement/claim-zec', {
+      proposal_id: proposalId,
+      secret: secret,
+      session_id: this.token,
     });
     return response.data;
   }

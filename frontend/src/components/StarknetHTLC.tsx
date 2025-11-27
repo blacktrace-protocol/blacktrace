@@ -3,7 +3,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { useMakerStarknet, useTakerStarknet, type HTLCDetails } from '../lib/starknet';
-import { Loader2, Lock, Unlock, RefreshCw } from 'lucide-react';
+import { Loader2, Lock, Unlock, RefreshCw, Coins } from 'lucide-react';
+import { Account, RpcProvider, CallData } from 'starknet';
+
+// Devnet faucet account (account 0 has large balance)
+const FAUCET_ACCOUNT = {
+  address: '0x064b48806902a367c8598f4f95c305e8c1a1acba5f082d294a43793113115691',
+  privateKey: '0x0000000000000000000000000000000071d7bb07b9a64f6f78ac4c816aff4da9',
+};
+const STRK_TOKEN_ADDRESS = '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d';
+const DEVNET_RPC_URL = 'http://127.0.0.1:5050/rpc';
 
 interface StarknetHTLCProps {
   panel: 'maker' | 'taker';
@@ -26,6 +35,61 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
 
   // Claim form state
   const [claimSecret, setClaimSecret] = useState('');
+
+  // Funding state
+  const [funding, setFunding] = useState(false);
+  const [fundingSuccess, setFundingSuccess] = useState<string | null>(null);
+
+  // Fund STRK from faucet (devnet only)
+  const handleFundSTRK = async (amount: number) => {
+    if (!address) return;
+
+    setFunding(true);
+    setError(null);
+    setFundingSuccess(null);
+
+    try {
+      const provider = new RpcProvider({ nodeUrl: DEVNET_RPC_URL });
+      const faucetAccount = new Account(
+        provider,
+        FAUCET_ACCOUNT.address,
+        FAUCET_ACCOUNT.privateKey
+      );
+
+      // Convert amount to wei (18 decimals)
+      const amountWei = BigInt(amount) * BigInt(10 ** 18);
+      const amountLow = amountWei & ((1n << 128n) - 1n);
+      const amountHigh = amountWei >> 128n;
+
+      // Transfer STRK from faucet to connected wallet
+      const tx = await faucetAccount.execute({
+        contractAddress: STRK_TOKEN_ADDRESS,
+        entrypoint: 'transfer',
+        calldata: CallData.compile({
+          recipient: address,
+          amount: { low: amountLow, high: amountHigh },
+        }),
+      });
+
+      await provider.waitForTransaction(tx.transaction_hash);
+
+      // Show success message
+      setFundingSuccess(`Successfully funded ${amount} STRK!`);
+
+      // Trigger balance refresh by reconnecting (hack but works)
+      setTimeout(async () => {
+        if (role) {
+          await connectWallet(role);
+        }
+        setFundingSuccess(null);
+      }, 2000);
+    } catch (err: any) {
+      console.error('Funding failed:', err);
+      setError(err.message || 'Failed to fund STRK');
+    } finally {
+      setFunding(false);
+    }
+  };
 
   useEffect(() => {
     if (account) {
@@ -163,7 +227,46 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
             </div>
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Funding buttons (devnet faucet) */}
+          <div className="space-y-2">
+            <div className="text-sm text-muted-foreground flex items-center gap-1">
+              <Coins className="h-4 w-4" />
+              Request STRK (Devnet Faucet)
+            </div>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleFundSTRK(500)}
+                disabled={funding}
+              >
+                {funding ? <Loader2 className="h-4 w-4 animate-spin" /> : '+500 STRK'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleFundSTRK(1000)}
+                disabled={funding}
+              >
+                {funding ? <Loader2 className="h-4 w-4 animate-spin" /> : '+1000 STRK'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleFundSTRK(5000)}
+                disabled={funding}
+              >
+                {funding ? <Loader2 className="h-4 w-4 animate-spin" /> : '+5000 STRK'}
+              </Button>
+            </div>
+            {fundingSuccess && (
+              <div className="text-sm text-green-400 bg-green-950/20 border border-green-900 rounded-md p-2">
+                {fundingSuccess}
+              </div>
+            )}
+          </div>
+
           <Button onClick={disconnectWallet} variant="outline">
             Disconnect
           </Button>
@@ -277,9 +380,16 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
               </div>
             </div>
 
+            {/* Balance check warning */}
+            {balance && parseFloat(amount) > parseFloat(balance) && (
+              <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2 flex items-center gap-2">
+                <span>Insufficient balance! You have {balance} STRK but trying to lock {amount} STRK.</span>
+              </div>
+            )}
+
             <Button
               onClick={handleLock}
-              disabled={loading || htlcDetails?.amount !== 0n}
+              disabled={loading || htlcDetails?.amount !== 0n || (balance ? parseFloat(amount) > parseFloat(balance) : false)}
               className="w-full"
             >
               {loading ? <Loader2 className="animate-spin" /> : 'Lock Funds'}

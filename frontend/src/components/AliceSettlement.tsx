@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { aliceAPI } from '../lib/api';
-import { Lock, RefreshCw, Clock, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Lock, RefreshCw, Clock, CheckCircle, AlertTriangle, Unlock, Zap } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 import { useStore } from '../lib/store';
+import { useMakerStarknet } from '../lib/starknet';
 
 interface AliceSettlementProps {
   onCountChange?: (count: number) => void;
@@ -16,11 +18,20 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lockingProposal, setLockingProposal] = useState<string | null>(null);
+  const [claimingProposal, setClaimingProposal] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<number>(0);
+  // Secret input for locking ZEC (Alice creates this)
+  const [lockSecret, setLockSecret] = useState<Record<string, string>>({});
+  // Stored secrets for proposals that have been locked (used when claiming STRK)
+  const [storedSecrets, setStoredSecrets] = useState<Record<string, string>>({});
+  const [claimSuccess, setClaimSuccess] = useState<string | null>(null);
 
   // Get username from store
   const currentUser = useStore((state) => state.alice.user);
   const username = currentUser?.username;
+
+  // Starknet context for claiming STRK
+  const { account: starknetAccount, claimFunds, connectWallet: connectStarknet } = useMakerStarknet();
 
   const fetchWalletBalance = async () => {
     if (!username) return;
@@ -53,13 +64,13 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
         try {
           const response = await aliceAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
-            // Filter proposals that are accepted and either ready or alice_locked
+            // Filter proposals that are accepted and need action from Alice
             const settlementProposals = response.proposals
               .filter(p =>
                 p.id &&
                 p.id.trim() !== '' &&
                 p.status === 'accepted' &&
-                (p.settlement_status === 'ready' || p.settlement_status === 'alice_locked' || !p.settlement_status)
+                (p.settlement_status === 'ready' || p.settlement_status === 'alice_locked' || p.settlement_status === 'both_locked' || !p.settlement_status)
               )
               .sort((a, b) => {
                 const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
@@ -104,6 +115,12 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
   }, [username]);
 
   const handleLockZEC = async (proposalId: string, amountZEC: number) => {
+    const secret = lockSecret[proposalId];
+    if (!secret || secret.trim().length < 8) {
+      setError('Please enter a secret (at least 8 characters). Keep this secret safe - you will need it to claim STRK!');
+      return;
+    }
+
     try {
       setLockingProposal(proposalId);
       setError('');
@@ -115,13 +132,10 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
         return;
       }
 
-      // TODO: Integrate with real Zcash wallet
-      // This is a mock wallet interaction
-      console.log('🔐 Mock Zcash Wallet Integration:');
-      console.log('  1. Generate HTLC parameters (hash, timelock)');
-      console.log('  2. Request user signature via Zcash wallet popup');
-      console.log('  3. Submit signed transaction to Zcash network');
-      console.log('  4. Wait for confirmation');
+      // Compute hash of secret (in real implementation this would be SHA256)
+      // For now we'll send the secret to the backend which will compute the hash
+      console.log('🔐 Zcash HTLC Lock:');
+      console.log(`  Secret: ${secret}`);
       console.log(`  Proposal ID: ${proposalId}`);
       console.log(`  Amount: ${amountZEC.toFixed(2)} ZEC`);
       console.log(`  Wallet Balance: ${walletBalance.toFixed(8)} ZEC`);
@@ -129,11 +143,17 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       // Simulate wallet popup and transaction signing
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      console.log('✅ Mock: ZEC locked successfully, calling backend API...');
+      console.log('✅ ZEC locked with HTLC, calling backend API...');
 
-      // Call backend API to update settlement status
-      const response = await aliceAPI.lockZEC(proposalId);
+      // Call backend API to update settlement status (include secret for hash computation)
+      const response = await aliceAPI.lockZEC(proposalId, secret);
       console.log(`✅ Backend: ${response.status}, settlement_status: ${response.settlement_status}`);
+
+      // Store the secret for later use when claiming STRK
+      setStoredSecrets(prev => ({ ...prev, [proposalId]: secret }));
+
+      // Clear the lock secret input
+      setLockSecret(prev => ({ ...prev, [proposalId]: '' }));
 
       // Refresh proposals to see updated status
       fetchSettlementProposals();
@@ -142,6 +162,59 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       setError(err.response?.data?.error || err.message || 'Failed to lock ZEC');
     } finally {
       setLockingProposal(null);
+    }
+  };
+
+  const handleClaimSTRK = async (proposalId: string, manualSecret?: string) => {
+    // Use stored secret first, then fall back to manual input
+    const secret = storedSecrets[proposalId] || manualSecret;
+    if (!secret) {
+      setError('No secret found. Please enter the secret you used when locking ZEC.');
+      return;
+    }
+
+    if (!starknetAccount) {
+      // Try to connect
+      try {
+        await connectStarknet('alice');
+      } catch (err) {
+        setError('Please connect your Starknet wallet first (go to Starknet tab)');
+        return;
+      }
+    }
+
+    try {
+      setClaimingProposal(proposalId);
+      setError('');
+      setClaimSuccess(null);
+
+      console.log('🔓 Claiming STRK with secret:', secret);
+      console.log('  This will reveal the secret on-chain for Bob to see');
+
+      // Call the Starknet claim function (this reveals the secret on-chain)
+      const txHash = await claimFunds(secret);
+
+      console.log('✅ STRK claimed successfully! TX:', txHash);
+      console.log('  Secret is now visible on Starknet - Bob can use it to claim ZEC');
+      setClaimSuccess(`STRK claimed! TX: ${txHash.slice(0, 10)}... Secret revealed on-chain.`);
+
+      // Clear stored secret (it's now public)
+      setStoredSecrets(prev => {
+        const newSecrets = { ...prev };
+        delete newSecrets[proposalId];
+        return newSecrets;
+      });
+
+      // Refresh proposals
+      fetchSettlementProposals();
+
+      // Clear success message after 5 seconds
+      setTimeout(() => setClaimSuccess(null), 5000);
+    } catch (err: any) {
+      console.error('Failed to claim STRK:', err);
+      setError(err.message || 'Failed to claim STRK. Make sure the secret is correct.');
+    } finally {
+      setClaimingProposal(null);
     }
   };
 
@@ -207,14 +280,17 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                 {proposals.map((proposal, idx) => {
                   const isReady = !proposal.settlement_status || proposal.settlement_status === 'ready';
                   const isAliceLocked = proposal.settlement_status === 'alice_locked';
+                  const isBothLocked = proposal.settlement_status === 'both_locked';
 
                   return (
                     <div
                       key={proposal.id || `proposal-${idx}`}
                       className={`border rounded-lg p-4 ${
-                        isAliceLocked
-                          ? 'border-blue-900/50 bg-blue-950/10'
-                          : 'border-amber-900/50 bg-amber-950/10'
+                        isBothLocked
+                          ? 'border-green-900/50 bg-green-950/10'
+                          : isAliceLocked
+                            ? 'border-blue-900/50 bg-blue-950/10'
+                            : 'border-amber-900/50 bg-amber-950/10'
                       }`}
                     >
                       <div className="mb-3 pb-2 border-b border-border">
@@ -253,11 +329,18 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                       <div className="mb-3">
                         <div className="text-xs text-muted-foreground mb-1">Settlement Status</div>
                         <div className={`inline-flex items-center gap-1 text-xs px-2 py-1 rounded ${
-                          isAliceLocked
-                            ? 'bg-blue-950/20 text-blue-400 border border-blue-900'
-                            : 'bg-amber-950/20 text-amber-400 border border-amber-900'
+                          isBothLocked
+                            ? 'bg-green-950/20 text-green-400 border border-green-900'
+                            : isAliceLocked
+                              ? 'bg-blue-950/20 text-blue-400 border border-blue-900'
+                              : 'bg-amber-950/20 text-amber-400 border border-amber-900'
                         }`}>
-                          {isAliceLocked ? (
+                          {isBothLocked ? (
+                            <>
+                              <Unlock className="h-3 w-3" />
+                              Both Locked - Ready to Claim STRK
+                            </>
+                          ) : isAliceLocked ? (
                             <>
                               <CheckCircle className="h-3 w-3" />
                               ZEC Locked - Waiting for Bob
@@ -276,26 +359,46 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                           <div className="mb-3 p-2 bg-amber-950/20 border border-amber-900 rounded text-xs text-amber-400">
                             ⚠️ You need to lock {(proposal.amount / 100).toFixed(2)} ZEC in HTLC to proceed with settlement
                           </div>
-                          <Button
-                            size="sm"
-                            className="w-full"
-                            onClick={() => handleLockZEC(proposal.id, proposal.amount / 100)}
-                            disabled={lockingProposal === proposal.id}
-                          >
-                            {lockingProposal === proposal.id ? (
-                              <>
-                                <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
-                                Signing Transaction...
-                              </>
-                            ) : (
-                              <>
-                                <Lock className="h-4 w-4 mr-1" />
-                                Lock {(proposal.amount / 100).toFixed(2)} ZEC
-                              </>
-                            )}
-                          </Button>
-                          <div className="text-xs text-muted-foreground mt-2 text-center">
-                            This will open your Zcash wallet to sign the HTLC transaction
+
+                          <div className="space-y-3">
+                            <div className="space-y-2">
+                              <label className="text-xs font-medium text-amber-400">
+                                🔑 Create HTLC Secret
+                              </label>
+                              <Input
+                                type="text"
+                                placeholder="Enter a secret phrase (min 8 chars) - SAVE THIS!"
+                                value={lockSecret[proposal.id] || ''}
+                                onChange={(e) => setLockSecret(prev => ({ ...prev, [proposal.id]: e.target.value }))}
+                                disabled={lockingProposal === proposal.id}
+                                className="font-mono"
+                              />
+                              <div className="text-xs text-amber-400/70">
+                                ⚠️ IMPORTANT: Save this secret! You'll need it to claim STRK after Bob locks.
+                              </div>
+                            </div>
+
+                            <Button
+                              size="sm"
+                              className="w-full"
+                              onClick={() => handleLockZEC(proposal.id, proposal.amount / 100)}
+                              disabled={lockingProposal === proposal.id || !lockSecret[proposal.id] || lockSecret[proposal.id].length < 8}
+                            >
+                              {lockingProposal === proposal.id ? (
+                                <>
+                                  <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                                  Locking ZEC...
+                                </>
+                              ) : (
+                                <>
+                                  <Lock className="h-4 w-4 mr-1" />
+                                  Lock {(proposal.amount / 100).toFixed(2)} ZEC with Secret
+                                </>
+                              )}
+                            </Button>
+                            <div className="text-xs text-muted-foreground text-center">
+                              The hash of your secret will be used in the HTLC. Bob will lock STRK using the same hash.
+                            </div>
                           </div>
                         </>
                       )}
@@ -307,9 +410,77 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                             <span className="font-medium">ZEC Locked Successfully</span>
                           </div>
                           <div className="text-xs text-blue-400/80">
-                            Waiting for Bob to lock USDC on Starknet. Settlement will proceed automatically once both sides are locked.
+                            Waiting for Bob to lock STRK on Starknet. Settlement will proceed automatically once both sides are locked.
                           </div>
                         </div>
+                      )}
+
+                      {isBothLocked && (
+                        <>
+                          <div className="mb-3 p-2 bg-green-950/20 border border-green-900 rounded text-xs text-green-400">
+                            <div className="flex items-center gap-2 mb-1">
+                              <Zap className="h-4 w-4" />
+                              <span className="font-medium">Both Parties Locked - Ready to Claim!</span>
+                            </div>
+                            Bob has locked STRK on Starknet using your hash. Claim your STRK now - this will reveal the secret so Bob can claim ZEC.
+                          </div>
+
+                          {claimSuccess && (
+                            <div className="mb-3 p-2 bg-green-950/30 border border-green-800 rounded text-xs text-green-300">
+                              ✅ {claimSuccess}
+                            </div>
+                          )}
+
+                          <div className="space-y-3">
+                            {storedSecrets[proposal.id] ? (
+                              // Secret is stored from when Alice locked ZEC
+                              <div className="p-2 bg-green-950/30 border border-green-800 rounded">
+                                <div className="text-xs text-green-400 mb-1">🔑 Your stored secret:</div>
+                                <div className="font-mono text-sm text-green-300 break-all">
+                                  {storedSecrets[proposal.id]}
+                                </div>
+                              </div>
+                            ) : (
+                              // Secret not stored - ask user to enter it manually
+                              <div className="space-y-2">
+                                <label className="text-xs text-amber-400">
+                                  ⚠️ Secret not found in memory. Please enter the secret you used when locking ZEC:
+                                </label>
+                                <Input
+                                  type="text"
+                                  placeholder="Enter your HTLC secret"
+                                  value={lockSecret[proposal.id] || ''}
+                                  onChange={(e) => setLockSecret(prev => ({ ...prev, [proposal.id]: e.target.value }))}
+                                  disabled={claimingProposal === proposal.id}
+                                  className="font-mono"
+                                />
+                              </div>
+                            )}
+
+                            <Button
+                              size="sm"
+                              className="w-full bg-green-600 hover:bg-green-700"
+                              onClick={() => handleClaimSTRK(proposal.id, lockSecret[proposal.id])}
+                              disabled={claimingProposal === proposal.id || (!storedSecrets[proposal.id] && !lockSecret[proposal.id])}
+                            >
+                              {claimingProposal === proposal.id ? (
+                                <>
+                                  <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                                  Claiming STRK...
+                                </>
+                              ) : (
+                                <>
+                                  <Unlock className="h-4 w-4 mr-1" />
+                                  Claim {(proposal.amount / 100 * proposal.price).toFixed(0)} STRK
+                                </>
+                              )}
+                            </Button>
+
+                            <div className="text-xs text-muted-foreground text-center">
+                              ⚠️ Claiming will reveal the secret on Starknet. Bob can then use it to claim your ZEC.
+                            </div>
+                          </div>
+                        </>
                       )}
                     </div>
                   );

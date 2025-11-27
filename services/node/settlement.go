@@ -76,6 +76,11 @@ func NewSettlementManager(app *BlackTraceApp) (*SettlementManager, error) {
 		log.Printf("Warning: Failed to subscribe to settlement secrets: %v", err)
 	}
 
+	// Subscribe to HTLC hash parameters (sent when Alice locks ZEC)
+	if err := sm.subscribeToHTLCParams(); err != nil {
+		log.Printf("Warning: Failed to subscribe to HTLC params: %v", err)
+	}
+
 	return sm, nil
 }
 
@@ -208,4 +213,38 @@ func (sm *SettlementManager) Close() {
 // IsEnabled returns whether the settlement service is enabled
 func (sm *SettlementManager) IsEnabled() bool {
 	return sm.enabled
+}
+
+// subscribeToHTLCParams subscribes to HTLC parameters (hash_lock) from the settlement service
+// This is published when Alice locks ZEC, and Bob needs the hash to lock STRK
+func (sm *SettlementManager) subscribeToHTLCParams() error {
+	_, err := sm.nc.Subscribe("settlement.htlc.*", func(msg *nats.Msg) {
+		var params map[string]interface{}
+		if err := json.Unmarshal(msg.Data, &params); err != nil {
+			log.Printf("Settlement: Error parsing HTLC params: %v", err)
+			return
+		}
+
+		proposalID, _ := params["proposal_id"].(string)
+		hashLock, _ := params["hash"].(string)
+		status, _ := params["status"].(string)
+
+		log.Printf("Settlement: 🔐 Received HTLC params for %s (hash: %s, status: %s)", proposalID, hashLock, status)
+
+		// Store hash_lock in proposal so Bob can read it
+		sm.app.proposalsMux.Lock()
+		defer sm.app.proposalsMux.Unlock()
+
+		if proposal, exists := sm.app.proposals[ProposalID(proposalID)]; exists {
+			proposal.HashLock = &hashLock
+			log.Printf("Settlement: Stored hash_lock in proposal %s", proposalID)
+		} else {
+			log.Printf("Settlement: Warning - proposal %s not found, cannot store hash_lock", proposalID)
+		}
+	})
+
+	if err == nil {
+		log.Printf("Settlement: Subscribed to HTLC params (settlement.htlc.*)")
+	}
+	return err
 }

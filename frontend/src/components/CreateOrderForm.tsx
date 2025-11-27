@@ -4,7 +4,7 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { aliceAPI } from '../lib/api';
 import { useStore } from '../lib/store';
-import { DollarSign, TrendingUp, Lock } from 'lucide-react';
+import { DollarSign, TrendingUp, Lock, Zap } from 'lucide-react';
 
 interface User {
   username: string;
@@ -149,14 +149,18 @@ export function CreateOrderForm() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                Min Price (per ZEC)
+                Min Price ({stablecoin === 'STRK' ? 'STRK' : '$'} per ZEC)
               </label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                {stablecoin === 'STRK' ? (
+                  <Zap className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                )}
                 <Input
                   type="number"
                   step="0.01"
-                  placeholder="25.00"
+                  placeholder={stablecoin === 'STRK' ? '10.00' : '25.00'}
                   className="pl-9"
                   value={minPrice}
                   onChange={(e) => setMinPrice(e.target.value)}
@@ -167,14 +171,18 @@ export function CreateOrderForm() {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                Max Price (per ZEC)
+                Max Price ({stablecoin === 'STRK' ? 'STRK' : '$'} per ZEC)
               </label>
               <div className="relative">
-                <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                {stablecoin === 'STRK' ? (
+                  <Zap className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                ) : (
+                  <DollarSign className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+                )}
                 <Input
                   type="number"
                   step="0.01"
-                  placeholder="30.00"
+                  placeholder={stablecoin === 'STRK' ? '15.00' : '30.00'}
                   className="pl-9"
                   value={maxPrice}
                   onChange={(e) => setMaxPrice(e.target.value)}

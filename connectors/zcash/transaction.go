@@ -3,6 +3,7 @@ package zcash
 import (
 	"crypto/sha256"
 	"fmt"
+	"math"
 )
 
 // CreateHTLCLockTransaction creates a transaction that locks funds to an HTLC P2SH address
@@ -46,6 +47,8 @@ func (c *Client) CreateHTLCLockTransaction(fromAddress string, htlcAddress strin
 	// Add change output if necessary
 	fee := 0.0001 // 0.0001 ZEC fee
 	change := totalInput - amount - fee
+	// Round to 8 decimal places to avoid floating point precision issues
+	change = math.Round(change*1e8) / 1e8
 	if change > 0.00001 { // Only add change if > dust threshold
 		outputs[fromAddress] = change
 	}

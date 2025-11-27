@@ -103,6 +103,7 @@ type Proposal struct {
 	ProposerID       PeerID            `json:"proposer_id"`
 	Status           ProposalStatus    `json:"status"`
 	SettlementStatus *SettlementStatus `json:"settlement_status,omitempty"` // Only set when Status is Accepted
+	HashLock         *string           `json:"hash_lock,omitempty"`         // HTLC hash lock (set when Alice locks ZEC)
 	Timestamp        time.Time         `json:"timestamp"`
 }
 

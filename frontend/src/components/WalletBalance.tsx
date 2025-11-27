@@ -1,8 +1,18 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
-import { Wallet, RefreshCw, Coins, CheckCircle, Clock, AlertTriangle } from 'lucide-react';
+import { Wallet, RefreshCw, Coins, CheckCircle, Clock, AlertTriangle, Zap } from 'lucide-react';
 import { useStore } from '../lib/store';
+import { useMakerStarknet, useTakerStarknet } from '../lib/starknet';
+import { Account, RpcProvider, CallData } from 'starknet';
+
+// Devnet faucet for STRK funding (using 3rd pre-deployed account, not Alice or Bob)
+const FAUCET_ACCOUNT = {
+  address: '0x49dfb8ce986e21d354ac93ea65e6a11f639c1934ea253e5ff14ca62eca0f38e',
+  privateKey: '0xa20a02f0ac53692d144b20cb371a60d7',
+};
+const STRK_TOKEN_ADDRESS = '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d';
+const DEVNET_RPC_URL = 'http://127.0.0.1:5050/rpc';
 
 interface WalletBalanceProps {
   user: 'alice' | 'bob';
@@ -24,16 +34,24 @@ export function WalletBalance({ user }: WalletBalanceProps) {
   const [error, setError] = useState('');
   const [fundingStatus, setFundingStatus] = useState<FundingStatus>('idle');
   const [fundingMessage, setFundingMessage] = useState('');
+  const [strkFunding, setStrkFunding] = useState(false);
+  const [strkFundingSuccess, setStrkFundingSuccess] = useState<string | null>(null);
 
   // Get username from store
   const currentUser = useStore((state) => user === 'alice' ? state.alice.user : state.bob.user);
   const username = currentUser?.username;
 
+  // Get Starknet context based on user
+  const makerStarknet = useMakerStarknet();
+  const takerStarknet = useTakerStarknet();
+  const starknetContext = user === 'alice' ? makerStarknet : takerStarknet;
+  const { address: starknetAddress, balance: strkBalance, connectWallet: connectStarknet } = starknetContext;
+
   const port = user === 'alice' ? 8080 : 8081;
   const maxFunding = 100;
   const fundAmountPerRequest = 10;
 
-  const fetchWalletInfo = async () => {
+  const fetchWalletInfo = useCallback(async () => {
     if (!username) return;
 
     try {
@@ -52,7 +70,7 @@ export function WalletBalance({ user }: WalletBalanceProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [username, port]);
 
   const handleRequestFunds = async () => {
     if (!username) return;
@@ -103,6 +121,69 @@ export function WalletBalance({ user }: WalletBalanceProps) {
     }
   };
 
+  // Fund STRK from devnet faucet
+  const handleFundSTRK = async (amount: number) => {
+    if (!starknetAddress) {
+      setError('Please wait for Starknet wallet to connect');
+      return;
+    }
+
+    setStrkFunding(true);
+    setError('');
+    setStrkFundingSuccess(null);
+
+    try {
+      const provider = new RpcProvider({ nodeUrl: DEVNET_RPC_URL });
+      const faucetAccount = new Account(
+        provider,
+        FAUCET_ACCOUNT.address,
+        FAUCET_ACCOUNT.privateKey
+      );
+
+      // Convert amount to wei (18 decimals)
+      const amountWei = BigInt(amount) * BigInt(10 ** 18);
+      const amountLow = amountWei & ((1n << 128n) - 1n);
+      const amountHigh = amountWei >> 128n;
+
+      // Transfer STRK from faucet to connected wallet
+      const tx = await faucetAccount.execute({
+        contractAddress: STRK_TOKEN_ADDRESS,
+        entrypoint: 'transfer',
+        calldata: CallData.compile({
+          recipient: starknetAddress,
+          amount: { low: amountLow, high: amountHigh },
+        }),
+      });
+
+      await provider.waitForTransaction(tx.transaction_hash);
+
+      setStrkFundingSuccess(`Successfully funded ${amount} STRK!`);
+
+      // Refresh balance by reconnecting with the correct user role
+      setTimeout(async () => {
+        try {
+          await connectStarknet(user);
+          console.log(`Refreshed ${user} STRK balance after funding`);
+        } catch (err) {
+          console.error('Failed to refresh balance:', err);
+        }
+        setStrkFundingSuccess(null);
+      }, 2000);
+    } catch (err: any) {
+      console.error('STRK funding failed:', err);
+      setError(err.message || 'Failed to fund STRK');
+    } finally {
+      setStrkFunding(false);
+    }
+  };
+
+  // Auto-connect Starknet wallet
+  useEffect(() => {
+    if (!starknetAddress && username) {
+      connectStarknet(user).catch(console.error);
+    }
+  }, [username, user, starknetAddress]);
+
   useEffect(() => {
     if (!username) return;
 
@@ -110,7 +191,7 @@ export function WalletBalance({ user }: WalletBalanceProps) {
     // Auto-refresh every 5 seconds
     const interval = setInterval(fetchWalletInfo, 5000);
     return () => clearInterval(interval);
-  }, [username, user]);
+  }, [username, fetchWalletInfo]);
 
   if (!username) {
     return (
@@ -142,11 +223,11 @@ export function WalletBalance({ user }: WalletBalanceProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Wallet className="h-5 w-5" />
-          ZEC Wallet Balance
+          Wallet Balances
           {loading && <RefreshCw className="h-4 w-4 animate-spin text-muted-foreground" />}
         </CardTitle>
         <CardDescription>
-          Auto-refreshing every 5 seconds
+          ZEC &amp; STRK balances • Auto-refreshing
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -240,8 +321,72 @@ export function WalletBalance({ user }: WalletBalanceProps) {
               </div>
             </div>
 
+            {/* Divider */}
+            <div className="border-t border-border my-4" />
+
+            {/* STRK Balance Section */}
+            <div className="bg-purple-950/20 border border-purple-900 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-purple-400" />
+                  <span className="text-sm font-medium text-purple-400">STRK Balance</span>
+                </div>
+                <div className="text-xl font-bold text-purple-400">
+                  {strkBalance || '...'} STRK
+                </div>
+              </div>
+
+              {starknetAddress && (
+                <div className="mb-3">
+                  <div className="text-xs text-muted-foreground mb-1">Starknet Address</div>
+                  <div className="font-mono text-xs break-all bg-purple-950/30 rounded p-2 text-purple-300">
+                    {starknetAddress}
+                  </div>
+                </div>
+              )}
+
+              {/* STRK Funding Buttons */}
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleFundSTRK(500)}
+                  disabled={strkFunding}
+                  className="flex-1 border-purple-900 text-purple-400 hover:bg-purple-950/30"
+                >
+                  {strkFunding ? <RefreshCw className="h-3 w-3 animate-spin" /> : <><Coins className="h-3 w-3 mr-1" />+500</>}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleFundSTRK(1000)}
+                  disabled={strkFunding}
+                  className="flex-1 border-purple-900 text-purple-400 hover:bg-purple-950/30"
+                >
+                  {strkFunding ? <RefreshCw className="h-3 w-3 animate-spin" /> : <><Coins className="h-3 w-3 mr-1" />+1000</>}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => handleFundSTRK(2000)}
+                  disabled={strkFunding}
+                  className="flex-1 border-purple-900 text-purple-400 hover:bg-purple-950/30"
+                >
+                  {strkFunding ? <RefreshCw className="h-3 w-3 animate-spin" /> : <><Coins className="h-3 w-3 mr-1" />+2000</>}
+                </Button>
+              </div>
+
+              {strkFundingSuccess && (
+                <div className="text-xs text-green-400 mt-2">✅ {strkFundingSuccess}</div>
+              )}
+
+              <div className="text-xs text-muted-foreground mt-2">
+                Fund STRK from Starknet devnet faucet for testing
+              </div>
+            </div>
+
             <div className="text-xs text-muted-foreground bg-blue-950/20 border border-blue-900 rounded p-2">
-              💡 Balance updates automatically as you lock/unlock funds in HTLCs
+              💡 Balances update automatically as you lock/unlock funds in HTLCs
             </div>
           </div>
         )}

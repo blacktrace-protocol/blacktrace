@@ -185,6 +185,11 @@ type TxOutput map[string]float64
 
 // CreateRawTransaction creates a raw transaction
 func (c *Client) CreateRawTransaction(inputs []TxInput, outputs TxOutput) (string, error) {
+	// Debug: log inputs and outputs
+	inputsJSON, _ := json.Marshal(inputs)
+	outputsJSON, _ := json.Marshal(outputs)
+	fmt.Printf("DEBUG CreateRawTransaction:\n  inputs: %s\n  outputs: %s\n", inputsJSON, outputsJSON)
+
 	result, err := c.call("createrawtransaction", inputs, outputs)
 	if err != nil {
 		return "", err

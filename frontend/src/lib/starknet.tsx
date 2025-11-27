@@ -38,6 +38,7 @@ interface StarknetContextType {
   getHTLCDetails: () => Promise<HTLCDetails | null>;
   getBalance: (address: string) => Promise<string>;
   lockFunds: (secret: string, receiver: string, amount: string, timeoutMinutes: number) => Promise<string>;
+  lockFundsWithHash: (hashLock: string, receiver: string, amount: string, timeoutMinutes: number) => Promise<string>;
   claimFunds: (secret: string) => Promise<string>;
   provider: RpcProvider;
 }
@@ -88,11 +89,11 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
   const connectWallet = async (selectedRole: 'bob' | 'alice') => {
     try {
       const accountConfig = DEVNET_ACCOUNTS[selectedRole];
-      const devnetAccount = new Account({
+      const devnetAccount = new Account(
         provider,
-        address: accountConfig.address,
-        signer: accountConfig.privateKey,
-      });
+        accountConfig.address,
+        accountConfig.privateKey
+      );
 
       setAccount(devnetAccount);
       setAddress(accountConfig.address);
@@ -118,11 +119,11 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
 
   const getHTLCDetails = async (): Promise<HTLCDetails | null> => {
     try {
-      const contract = new Contract({
-        abi: HTLC_ABI,
-        address: HTLC_CONTRACT_ADDRESS,
-        providerOrAccount: provider,
-      });
+      const contract = new Contract(
+        HTLC_ABI,
+        HTLC_CONTRACT_ADDRESS,
+        provider
+      );
       const result = await contract.get_htlc_details();
 
       // Handle different response structures from starknet.js
@@ -257,6 +258,81 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     }
   };
 
+  // Lock funds with a pre-computed hash (for interface consistency)
+  const lockFundsWithHash = async (
+    hashLock: string,
+    receiver: string,
+    amount: string,
+    timeoutMinutes: number
+  ): Promise<string> => {
+    if (!account) throw new Error('Wallet not connected');
+
+    try {
+      const timeout = Math.floor(Date.now() / 1000) + (timeoutMinutes * 60);
+      const amountBigInt = BigInt(amount);
+      const amountLow = amountBigInt & ((1n << 128n) - 1n);
+      const amountHigh = amountBigInt >> 128n;
+
+      // Convert hash_lock hex string to BigInt for felt252
+      // DO NOT use CallData.compile() - it will encode the hash as a shortstring (multi-felt)
+      // Instead, pass raw felts directly to execute()
+      const hashLockHex = hashLock.startsWith('0x') ? hashLock : `0x${hashLock}`;
+      const hashLockFelt = BigInt(hashLockHex);
+
+      console.log('lockFundsWithHash:', {
+        hashLock: hashLockHex,
+        hashLockFelt: hashLockFelt.toString(),
+        receiver,
+        timeout,
+        amountLow: amountLow.toString(),
+        amountHigh: amountHigh.toString(),
+      });
+
+      // Step 1: Approve HTLC contract to spend STRK tokens
+      // Approve still uses CallData.compile since it doesn't have the hash issue
+      const approveTx = await account.execute({
+        contractAddress: STRK_TOKEN_ADDRESS,
+        entrypoint: 'approve',
+        calldata: CallData.compile({
+          spender: HTLC_CONTRACT_ADDRESS,
+          amount: { low: amountLow, high: amountHigh },
+        }),
+      });
+      await provider.waitForTransaction(approveTx.transaction_hash);
+
+      // Step 2: Lock funds in HTLC with the provided hash
+      // DO NOT use CallData.compile() - pass raw calldata array directly
+      // This prevents starknet.js from encoding the hash as a shortstring
+      // Contract signature: lock(hash_lock: felt252, receiver: ContractAddress, timeout: u64, amount: u256)
+      const calldata = [
+        hashLockFelt.toString(),  // hash_lock as felt252 (BigInt converted to string)
+        receiver,                  // receiver as ContractAddress
+        timeout.toString(),        // timeout as u64
+        amountLow.toString(),      // amount.low (u256 low part)
+        amountHigh.toString(),     // amount.high (u256 high part)
+      ];
+
+      console.log('Manual calldata (no CallData.compile):', calldata);
+
+      const tx = await account.execute({
+        contractAddress: HTLC_CONTRACT_ADDRESS,
+        entrypoint: 'lock',
+        calldata: calldata,
+      });
+      await provider.waitForTransaction(tx.transaction_hash);
+
+      if (address) {
+        const newBalance = await getBalance(address);
+        setBalance(newBalance);
+      }
+
+      return tx.transaction_hash;
+    } catch (error) {
+      console.error('Failed to lock funds with hash:', error);
+      throw error;
+    }
+  };
+
   const claimFunds = async (secret: string): Promise<string> => {
     if (!account) throw new Error('Wallet not connected');
 
@@ -304,6 +380,7 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
         getHTLCDetails,
         getBalance,
         lockFunds,
+        lockFundsWithHash,
         claimFunds,
         provider,
       }}
@@ -347,11 +424,11 @@ export const TakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
   const connectWallet = async (selectedRole: 'bob' | 'alice') => {
     try {
       const accountConfig = DEVNET_ACCOUNTS[selectedRole];
-      const devnetAccount = new Account({
+      const devnetAccount = new Account(
         provider,
-        address: accountConfig.address,
-        signer: accountConfig.privateKey,
-      });
+        accountConfig.address,
+        accountConfig.privateKey
+      );
 
       setAccount(devnetAccount);
       setAddress(accountConfig.address);
@@ -376,11 +453,11 @@ export const TakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
 
   const getHTLCDetails = async (): Promise<HTLCDetails | null> => {
     try {
-      const contract = new Contract({
-        abi: HTLC_ABI,
-        address: HTLC_CONTRACT_ADDRESS,
-        providerOrAccount: provider,
-      });
+      const contract = new Contract(
+        HTLC_ABI,
+        HTLC_CONTRACT_ADDRESS,
+        provider
+      );
       const result = await contract.get_htlc_details();
 
       let htlcData = result;
@@ -498,6 +575,83 @@ export const TakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     }
   };
 
+  // Lock funds with a pre-computed hash (used by Bob who gets hash from Alice's Zcash HTLC)
+  const lockFundsWithHash = async (
+    hashLock: string,
+    receiver: string,
+    amount: string,
+    timeoutMinutes: number
+  ): Promise<string> => {
+    if (!account) throw new Error('Wallet not connected');
+
+    try {
+      const timeout = Math.floor(Date.now() / 1000) + (timeoutMinutes * 60);
+      const amountBigInt = BigInt(amount);
+      const amountLow = amountBigInt & ((1n << 128n) - 1n);
+      const amountHigh = amountBigInt >> 128n;
+
+      // Convert hash_lock hex string to BigInt for felt252
+      // DO NOT use CallData.compile() - it will encode the hash as a shortstring (multi-felt)
+      const hashLockHex = hashLock.startsWith('0x') ? hashLock : `0x${hashLock}`;
+      const hashLockFelt = BigInt(hashLockHex);
+
+      console.log('Locking funds with pre-computed hash:', {
+        hashLock: hashLockHex,
+        hashLockFelt: hashLockFelt.toString(),
+        receiver,
+        timeout,
+        amount: amountBigInt.toString(),
+        amountLow: amountLow.toString(),
+        amountHigh: amountHigh.toString(),
+      });
+
+      // Step 1: Approve HTLC contract to spend STRK tokens
+      console.log('Approving HTLC contract to spend STRK...');
+      const approveTx = await account.execute({
+        contractAddress: STRK_TOKEN_ADDRESS,
+        entrypoint: 'approve',
+        calldata: CallData.compile({
+          spender: HTLC_CONTRACT_ADDRESS,
+          amount: { low: amountLow, high: amountHigh },
+        }),
+      });
+      await provider.waitForTransaction(approveTx.transaction_hash);
+      console.log('Approval transaction:', approveTx.transaction_hash);
+
+      // Step 2: Lock funds in HTLC with the provided hash
+      // DO NOT use CallData.compile() - pass raw calldata array directly
+      // This prevents starknet.js from encoding the hash as a shortstring
+      // Contract signature: lock(hash_lock: felt252, receiver: ContractAddress, timeout: u64, amount: u256)
+      const calldata = [
+        hashLockFelt.toString(),  // hash_lock as felt252 (BigInt converted to string)
+        receiver,                  // receiver as ContractAddress
+        timeout.toString(),        // timeout as u64
+        amountLow.toString(),      // amount.low (u256 low part)
+        amountHigh.toString(),     // amount.high (u256 high part)
+      ];
+
+      console.log('Manual calldata (no CallData.compile):', calldata);
+
+      const tx = await account.execute({
+        contractAddress: HTLC_CONTRACT_ADDRESS,
+        entrypoint: 'lock',
+        calldata: calldata,
+      });
+      await provider.waitForTransaction(tx.transaction_hash);
+
+      if (address) {
+        const newBalance = await getBalance(address);
+        setBalance(newBalance);
+      }
+
+      console.log('Lock transaction with hash:', tx.transaction_hash);
+      return tx.transaction_hash;
+    } catch (error) {
+      console.error('Failed to lock funds with hash:', error);
+      throw error;
+    }
+  };
+
   const claimFunds = async (secret: string): Promise<string> => {
     if (!account) throw new Error('Wallet not connected');
 
@@ -542,6 +696,7 @@ export const TakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
         getHTLCDetails,
         getBalance,
         lockFunds,
+        lockFundsWithHash,
         claimFunds,
         provider,
       }}
