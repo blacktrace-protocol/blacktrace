@@ -109,7 +109,7 @@ services:
       - blacktrace-net
     volumes:
       - zcash-regtest-data:/srv/zcashd/.zcash
-      - zcash.conf:/srv/zcashd/.zcash/zcash.conf
+      - ./zcash.conf:/srv/zcashd/.zcash/zcash.conf
     cap_add:
       - SYS_NICE
       - SYS_RESOURCE
@@ -147,7 +147,7 @@ services:
   # React frontend - Split-screen UI for Alice and Bob
   frontend:
     build:
-      context: ./frontend
+      context: ../frontend
       dockerfile: Dockerfile
     container_name: blacktrace-frontend
     ports:
