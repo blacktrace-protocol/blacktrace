@@ -2,8 +2,10 @@ package node
 
 import (
 	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -1091,7 +1093,7 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 
 	username := session.Username
 
-	// Get user's Zcash wallet address
+	// Get user's Zcash wallet (including private key for signing)
 	walletMgr := api.app.GetWalletManager()
 	wallet, err := walletMgr.GetWallet(username)
 	if err != nil {
@@ -1105,13 +1107,85 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	bobPrivateKey := wallet.PrivateKey
+	if bobPrivateKey == "" {
+		api.sendError(w, "No private key found for user. Please re-register to get keypair info.", http.StatusBadRequest)
+		return
+	}
+
 	log.Printf("🔓 Claiming ZEC for proposal %s to address %s", req.ProposalID, bobZcashAddress)
 
-	// Forward the claim request to the settlement service
+	// Step 1: Get HTLC parameters from settlement service
+	htlcParamsResp, err := http.Get(fmt.Sprintf("http://settlement-service:8090/api/htlc-params?proposal_id=%s", req.ProposalID))
+	if err != nil {
+		log.Printf("Failed to get HTLC params: %v", err)
+		api.sendError(w, fmt.Sprintf("Failed to get HTLC params: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer htlcParamsResp.Body.Close()
+
+	if htlcParamsResp.StatusCode != http.StatusOK {
+		bodyBytes, _ := io.ReadAll(htlcParamsResp.Body)
+		api.sendError(w, fmt.Sprintf("Failed to get HTLC params: %s", string(bodyBytes)), htlcParamsResp.StatusCode)
+		return
+	}
+
+	var htlcParams struct {
+		HTLCTxID     string  `json:"htlc_txid"`
+		HTLCVout     uint32  `json:"htlc_vout"`
+		HTLCAmount   float64 `json:"htlc_amount"`
+		RedeemScript string  `json:"redeem_script"`
+		HashLock     string  `json:"hash_lock"`
+	}
+
+	if err := json.NewDecoder(htlcParamsResp.Body).Decode(&htlcParams); err != nil {
+		api.sendError(w, "Failed to parse HTLC params", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("  HTLC params: txid=%s, amount=%.8f", htlcParams.HTLCTxID, htlcParams.HTLCAmount)
+
+	// Decode redeem script from hex
+	redeemScript, err := hex.DecodeString(htlcParams.RedeemScript)
+	if err != nil {
+		api.sendError(w, "Failed to decode redeem script", http.StatusInternalServerError)
+		return
+	}
+
+	// Decode secret (could be hex or raw string)
+	var secretBytes []byte
+	if decoded, err := hex.DecodeString(req.Secret); err == nil && len(decoded) > 0 {
+		secretBytes = decoded
+	} else {
+		secretBytes = []byte(req.Secret)
+	}
+
+	// Step 2: Build and sign the claim transaction locally
+	claimParams := &HTLCClaimParams{
+		HTLCTxID:      htlcParams.HTLCTxID,
+		HTLCVout:      htlcParams.HTLCVout,
+		HTLCAmount:    htlcParams.HTLCAmount,
+		RedeemScript:  redeemScript,
+		Secret:        secretBytes,
+		RecipientAddr: bobZcashAddress,
+		PrivateKeyWIF: bobPrivateKey,
+	}
+
+	signedTxHex, err := BuildAndSignHTLCClaimTx(claimParams)
+	if err != nil {
+		log.Printf("Failed to build/sign claim transaction: %v", err)
+		api.sendError(w, fmt.Sprintf("Failed to sign claim transaction: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("  Signed TX (local): %s...", signedTxHex[:min(64, len(signedTxHex))])
+
+	// Step 3: Send signed transaction to settlement service for broadcasting
 	claimReq := map[string]interface{}{
 		"proposal_id":       req.ProposalID,
 		"secret":            req.Secret,
 		"recipient_address": bobZcashAddress,
+		"signed_tx_hex":     signedTxHex,
 	}
 
 	claimReqBody, err := json.Marshal(claimReq)
@@ -1120,7 +1194,6 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Call settlement service
 	claimResp, err := http.Post("http://settlement-service:8090/api/claim-zec", "application/json", bytes.NewReader(claimReqBody))
 	if err != nil {
 		log.Printf("Failed to call settlement service: %v", err)
@@ -1140,7 +1213,8 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := json.NewDecoder(claimResp.Body).Decode(&settlementResp); err != nil {
-		// Try to read raw body for error message
+		bodyBytes, _ := io.ReadAll(claimResp.Body)
+		log.Printf("Failed to parse settlement response: %v, body: %s", err, string(bodyBytes))
 		api.sendError(w, "Failed to parse settlement service response", http.StatusInternalServerError)
 		return
 	}
@@ -1164,7 +1238,7 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 		Status:           "zec_claimed",
 		SettlementStatus: "completed",
 		TxID:             settlementResp.TxID,
-		Amount:           settlementResp.Amount,
+		Amount:           htlcParams.HTLCAmount,
 	})
 }
 

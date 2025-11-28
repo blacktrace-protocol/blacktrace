@@ -751,7 +751,110 @@ func (s *SettlementService) handleAddressBalance(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleGetHTLCParams returns the HTLC parameters needed for Bob to claim locally
+func (s *SettlementService) handleGetHTLCParams(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	proposalID := r.URL.Query().Get("proposal_id")
+	if proposalID == "" {
+		http.Error(w, "proposal_id is required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up the settlement state
+	s.mu.RLock()
+	state, exists := s.settlements[proposalID]
+	s.mu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Settlement not found", http.StatusNotFound)
+		return
+	}
+
+	if state.HTLCLockTxID == "" {
+		http.Error(w, "HTLC not yet locked", http.StatusBadRequest)
+		return
+	}
+
+	if len(state.HTLCScript) == 0 {
+		http.Error(w, "HTLC script not available", http.StatusBadRequest)
+		return
+	}
+
+	response := map[string]interface{}{
+		"htlc_txid":     state.HTLCLockTxID,
+		"htlc_vout":     0, // HTLC output is at index 0
+		"htlc_amount":   float64(state.AmountZEC),
+		"redeem_script": hex.EncodeToString(state.HTLCScript),
+		"hash_lock":     state.HashHex,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleBroadcastTx broadcasts a signed transaction to the Zcash network
+func (s *SettlementService) handleBroadcastTx(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		SignedTxHex string `json:"signed_tx_hex"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.SignedTxHex == "" {
+		http.Error(w, "signed_tx_hex is required", http.StatusBadRequest)
+		return
+	}
+
+	// Broadcast the transaction
+	txid, err := s.zcashClient.BroadcastTransaction(req.SignedTxHex)
+	if err != nil {
+		log.Printf("Failed to broadcast transaction: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to broadcast transaction: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Mine a block to confirm (regtest only)
+	s.zcashClient.Generate(1)
+	log.Printf("⛏️ Mined 1 block to confirm claim transaction")
+
+	response := map[string]interface{}{
+		"success": true,
+		"txid":    txid,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // handleClaimZEC handles Bob's request to claim ZEC from the HTLC
+// This now expects a pre-signed transaction from Bob's node
 func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 	// Enable CORS
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -772,6 +875,7 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 		ProposalID       string `json:"proposal_id"`
 		Secret           string `json:"secret"`
 		RecipientAddress string `json:"recipient_address"`
+		SignedTxHex      string `json:"signed_tx_hex"` // Pre-signed transaction from Bob's node
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -794,6 +898,11 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if req.SignedTxHex == "" {
+		http.Error(w, "signed_tx_hex is required - Bob must sign the claim transaction locally", http.StatusBadRequest)
+		return
+	}
+
 	// Look up the settlement state
 	s.mu.RLock()
 	state, exists := s.settlements[req.ProposalID]
@@ -810,23 +919,15 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if len(state.HTLCScript) == 0 {
-		http.Error(w, "HTLC script not available", http.StatusBadRequest)
-		return
-	}
-
 	// Decode the secret from the request
-	// The secret could be hex-encoded or raw string
 	var secretBytes []byte
 	if decoded, err := hex.DecodeString(req.Secret); err == nil && len(decoded) == 32 {
 		secretBytes = decoded
 	} else {
-		// Treat as raw string (for demo - user enters the secret phrase)
 		secretBytes = []byte(req.Secret)
 	}
 
 	// Verify the secret matches the stored hash
-	// Hash is RIPEMD160(SHA256(secret))
 	shaHash := sha256.Sum256(secretBytes)
 	ripemdHasher := ripemd160.New()
 	ripemdHasher.Write(shaHash[:])
@@ -841,24 +942,11 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 
 	log.Printf("✅ Secret verified for proposal %s", req.ProposalID)
 
-	// Get the HTLC amount (stored in cents, need to convert to ZEC)
-	htlcAmountZEC := float64(state.AmountZEC)
-
-	// Create claim parameters
-	claimParams := &zcash.HTLCClaimParams{
-		HTLCTxID:      state.HTLCLockTxID,
-		HTLCVout:      0, // Assuming the HTLC output is at index 0
-		HTLCAmount:    htlcAmountZEC,
-		RedeemScript:  state.HTLCScript,
-		Secret:        secretBytes,
-		RecipientAddr: req.RecipientAddress,
-	}
-
-	// Attempt to claim the HTLC
-	txid, err := s.zcashClient.ClaimHTLC(claimParams)
+	// Broadcast the pre-signed transaction from Bob
+	txid, err := s.zcashClient.BroadcastTransaction(req.SignedTxHex)
 	if err != nil {
-		log.Printf("Failed to claim HTLC: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to claim HTLC: %v", err), http.StatusInternalServerError)
+		log.Printf("Failed to broadcast claim transaction: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to broadcast claim transaction: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -877,7 +965,7 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 	response := map[string]interface{}{
 		"success":          true,
 		"txid":             txid,
-		"amount":           htlcAmountZEC,
+		"amount":           float64(state.AmountZEC) / 1e8, // Convert from zatoshis to ZEC
 		"recipient":        req.RecipientAddress,
 		"status":           "completed",
 	}
@@ -958,6 +1046,8 @@ func (s *SettlementService) StartHTTPServer(port string) {
 	http.HandleFunc("/api/fund-address", s.handleFundAddress)
 	http.HandleFunc("/api/address-balance", s.handleAddressBalance)
 	http.HandleFunc("/api/claim-zec", s.handleClaimZEC)
+	http.HandleFunc("/api/htlc-params", s.handleGetHTLCParams)
+	http.HandleFunc("/api/broadcast-tx", s.handleBroadcastTx)
 	http.HandleFunc("/api/address-keypair", s.handleAddressKeypair)
 
 	log.Printf("✓ Starting HTTP API server on :%s", port)
