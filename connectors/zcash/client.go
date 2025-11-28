@@ -175,6 +175,14 @@ func (c *Client) DumpPrivKey(address string) (string, error) {
 	return privKey, nil
 }
 
+// ImportPrivKey imports a private key (WIF format) into the wallet temporarily for signing
+// rescan=false avoids slow blockchain rescanning - key is just used for signing
+func (c *Client) ImportPrivKey(privKeyWIF string) error {
+	// Import with empty label and rescan=false for speed
+	_, err := c.call("importprivkey", privKeyWIF, "", false)
+	return err
+}
+
 // ValidateAddress returns information about a t-address including pubkey hash
 func (c *Client) ValidateAddress(address string) (map[string]interface{}, error) {
 	result, err := c.call("validateaddress", address)

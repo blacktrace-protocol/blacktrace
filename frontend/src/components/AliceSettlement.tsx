@@ -262,28 +262,30 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
 
         {totalProposals > 0 && (
           <div className="mb-4 p-3 bg-blue-950/20 border border-blue-900 rounded-md space-y-2">
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-blue-400">Wallet Balance</div>
-              <div className="text-lg font-bold text-blue-400">{walletBalance.toFixed(4)} ZEC</div>
-            </div>
-            {Object.keys(lockedAmounts).length > 0 && (
+            {Object.keys(lockedAmounts).length > 0 ? (
               <>
+                {/* When ZEC is locked, wallet balance already reflects the deduction */}
                 <div className="flex items-center justify-between text-amber-400">
                   <div className="text-sm flex items-center gap-1">
                     <Lock className="h-3 w-3" />
                     Locked in HTLC
                   </div>
                   <div className="text-lg font-bold">
-                    -{Object.values(lockedAmounts).reduce((sum, amt) => sum + amt, 0).toFixed(2)} ZEC
+                    {Object.values(lockedAmounts).reduce((sum, amt) => sum + amt, 0).toFixed(2)} ZEC
                   </div>
                 </div>
                 <div className="border-t border-blue-900 pt-2 flex items-center justify-between">
-                  <div className="text-sm text-green-400">Available for Trading</div>
+                  <div className="text-sm text-green-400">Available Balance</div>
                   <div className="text-lg font-bold text-green-400">
-                    {(walletBalance - Object.values(lockedAmounts).reduce((sum, amt) => sum + amt, 0)).toFixed(4)} ZEC
+                    {walletBalance.toFixed(4)} ZEC
                   </div>
                 </div>
               </>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="text-sm text-blue-400">Wallet Balance</div>
+                <div className="text-lg font-bold text-blue-400">{walletBalance.toFixed(4)} ZEC</div>
+              </div>
             )}
           </div>
         )}

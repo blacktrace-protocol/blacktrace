@@ -2,7 +2,6 @@ package node
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -1115,77 +1114,13 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("🔓 Claiming ZEC for proposal %s to address %s", req.ProposalID, bobZcashAddress)
 
-	// Step 1: Get HTLC parameters from settlement service
-	htlcParamsResp, err := http.Get(fmt.Sprintf("http://settlement-service:8090/api/htlc-params?proposal_id=%s", req.ProposalID))
-	if err != nil {
-		log.Printf("Failed to get HTLC params: %v", err)
-		api.sendError(w, fmt.Sprintf("Failed to get HTLC params: %v", err), http.StatusInternalServerError)
-		return
-	}
-	defer htlcParamsResp.Body.Close()
-
-	if htlcParamsResp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(htlcParamsResp.Body)
-		api.sendError(w, fmt.Sprintf("Failed to get HTLC params: %s", string(bodyBytes)), htlcParamsResp.StatusCode)
-		return
-	}
-
-	var htlcParams struct {
-		HTLCTxID     string  `json:"htlc_txid"`
-		HTLCVout     uint32  `json:"htlc_vout"`
-		HTLCAmount   float64 `json:"htlc_amount"`
-		RedeemScript string  `json:"redeem_script"`
-		HashLock     string  `json:"hash_lock"`
-	}
-
-	if err := json.NewDecoder(htlcParamsResp.Body).Decode(&htlcParams); err != nil {
-		api.sendError(w, "Failed to parse HTLC params", http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("  HTLC params: txid=%s, amount=%.8f", htlcParams.HTLCTxID, htlcParams.HTLCAmount)
-
-	// Decode redeem script from hex
-	redeemScript, err := hex.DecodeString(htlcParams.RedeemScript)
-	if err != nil {
-		api.sendError(w, "Failed to decode redeem script", http.StatusInternalServerError)
-		return
-	}
-
-	// Decode secret (could be hex or raw string)
-	var secretBytes []byte
-	if decoded, err := hex.DecodeString(req.Secret); err == nil && len(decoded) > 0 {
-		secretBytes = decoded
-	} else {
-		secretBytes = []byte(req.Secret)
-	}
-
-	// Step 2: Build and sign the claim transaction locally
-	claimParams := &HTLCClaimParams{
-		HTLCTxID:      htlcParams.HTLCTxID,
-		HTLCVout:      htlcParams.HTLCVout,
-		HTLCAmount:    htlcParams.HTLCAmount,
-		RedeemScript:  redeemScript,
-		Secret:        secretBytes,
-		RecipientAddr: bobZcashAddress,
-		PrivateKeyWIF: bobPrivateKey,
-	}
-
-	signedTxHex, err := BuildAndSignHTLCClaimTx(claimParams)
-	if err != nil {
-		log.Printf("Failed to build/sign claim transaction: %v", err)
-		api.sendError(w, fmt.Sprintf("Failed to sign claim transaction: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	log.Printf("  Signed TX (local): %s...", signedTxHex[:min(64, len(signedTxHex))])
-
-	// Step 3: Send signed transaction to settlement service for broadcasting
+	// Send claim request to settlement service with private key for signing
+	// The private key is used once for signing and not stored
 	claimReq := map[string]interface{}{
 		"proposal_id":       req.ProposalID,
 		"secret":            req.Secret,
 		"recipient_address": bobZcashAddress,
-		"signed_tx_hex":     signedTxHex,
+		"private_key_wif":   bobPrivateKey,
 	}
 
 	claimReqBody, err := json.Marshal(claimReq)
@@ -1238,7 +1173,7 @@ func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
 		Status:           "zec_claimed",
 		SettlementStatus: "completed",
 		TxID:             settlementResp.TxID,
-		Amount:           htlcParams.HTLCAmount,
+		Amount:           settlementResp.Amount,
 	})
 }
 

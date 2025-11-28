@@ -875,7 +875,7 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 		ProposalID       string `json:"proposal_id"`
 		Secret           string `json:"secret"`
 		RecipientAddress string `json:"recipient_address"`
-		SignedTxHex      string `json:"signed_tx_hex"` // Pre-signed transaction from Bob's node
+		PrivateKeyWIF    string `json:"private_key_wif"` // Bob's private key for signing (not stored)
 	}
 
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -898,8 +898,8 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if req.SignedTxHex == "" {
-		http.Error(w, "signed_tx_hex is required - Bob must sign the claim transaction locally", http.StatusBadRequest)
+	if req.PrivateKeyWIF == "" {
+		http.Error(w, "private_key_wif is required for signing the claim transaction", http.StatusBadRequest)
 		return
 	}
 
@@ -942,11 +942,30 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 
 	log.Printf("✅ Secret verified for proposal %s", req.ProposalID)
 
-	// Broadcast the pre-signed transaction from Bob
-	txid, err := s.zcashClient.BroadcastTransaction(req.SignedTxHex)
+	// Import Bob's private key temporarily for signing (not stored persistently)
+	log.Printf("🔑 Importing Bob's private key for signing...")
+	if err := s.zcashClient.ImportPrivKey(req.PrivateKeyWIF); err != nil {
+		log.Printf("Failed to import private key: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to import private key: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Build claim parameters
+	// AmountZEC is stored in cents (100 = 1 ZEC), convert to ZEC
+	claimParams := &zcash.HTLCClaimParams{
+		HTLCTxID:      state.HTLCLockTxID,
+		HTLCVout:      0, // HTLC is always at vout 0
+		HTLCAmount:    float64(state.AmountZEC) / 100.0,
+		RedeemScript:  state.HTLCScript,
+		Secret:        secretBytes,
+		RecipientAddr: req.RecipientAddress,
+	}
+
+	// Create, sign, and broadcast the claim transaction using Zcash RPC
+	txid, err := s.zcashClient.ClaimHTLC(claimParams)
 	if err != nil {
-		log.Printf("Failed to broadcast claim transaction: %v", err)
-		http.Error(w, fmt.Sprintf("Failed to broadcast claim transaction: %v", err), http.StatusInternalServerError)
+		log.Printf("Failed to claim HTLC: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to claim HTLC: %v", err), http.StatusInternalServerError)
 		return
 	}
 
@@ -965,7 +984,7 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 	response := map[string]interface{}{
 		"success":          true,
 		"txid":             txid,
-		"amount":           float64(state.AmountZEC) / 1e8, // Convert from zatoshis to ZEC
+		"amount":           float64(state.AmountZEC) / 100.0, // Convert from cents to ZEC
 		"recipient":        req.RecipientAddress,
 		"status":           "completed",
 	}

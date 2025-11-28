@@ -325,71 +325,32 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     if (!account) throw new Error('Wallet not connected');
 
     try {
-      console.log('🔓 SIMULATED CLAIM: Transferring STRK to Alice (bypassing HTLC due to hash mismatch)');
+      console.log('🔓 SIMULATED CLAIM: Alice claiming STRK (already transferred during Bob\'s lock step)');
       console.log('  Hash lock:', hashLock);
       console.log('  Secret provided:', secret);
-      console.log('  Amount to claim:', amountSTRK, 'STRK');
+      console.log('  Amount claimed:', amountSTRK, 'STRK');
       console.log('  In production, this would call the HTLC contract claim() function');
 
-      // DEMO SIMULATION: Since the HTLC contract uses Pedersen hash but Zcash uses RIPEMD160(SHA256),
-      // we simulate the claim by transferring STRK directly from Bob to Alice.
-      // This demonstrates the UX flow while we upgrade to Cairo 2.7+ for SHA256 support.
+      // DEMO SIMULATION: In demo mode, Bob already transferred STRK to Alice during the "lock" step
+      // (see BobSettlement.tsx handleLockSTRK). So we just need to:
+      // 1. Simulate the "claim" action (no actual transfer needed - already done)
+      // 2. Refresh Alice's balance to reflect the transfer
+      // 3. Return a mock transaction hash
 
-      // Use the passed amount, or try to get from HTLC contract, or fail with error
-      let claimAmount: bigint;
-
-      if (amountSTRK && amountSTRK > 0) {
-        // Use the passed amount (from proposal)
-        claimAmount = BigInt(Math.floor(amountSTRK * 1e18));
-        console.log('  Using passed amount:', amountSTRK, 'STRK');
-      } else {
-        // Try to get from HTLC contract (won't work in simulated mode)
-        const htlcDetails = await getHTLCDetails(hashLock);
-        if (htlcDetails && htlcDetails.amount > 0n) {
-          claimAmount = htlcDetails.amount;
-          console.log('  HTLC locked amount:', (Number(claimAmount) / 1e18).toFixed(2), 'STRK');
-        } else {
-          throw new Error('Cannot determine claim amount. Please provide the STRK amount.');
-        }
-      }
-
-      // Use Bob's account to transfer STRK to Alice (simulating HTLC release)
-      const bobAccount = new Account(
-        provider,
-        DEVNET_ACCOUNTS.bob.address,
-        DEVNET_ACCOUNTS.bob.privateKey
-      );
-
-      // Alice's address (the claimer)
-      const aliceAddress = DEVNET_ACCOUNTS.alice.address;
-
-      // Transfer STRK from Bob to Alice
-      const amountLow = claimAmount & ((1n << 128n) - 1n);
-      const amountHigh = claimAmount >> 128n;
-
-      console.log('  Transferring from Bob to Alice:', (Number(claimAmount) / 1e18).toFixed(2), 'STRK');
-
-      const tx = await bobAccount.execute({
-        contractAddress: STRK_TOKEN_ADDRESS,
-        entrypoint: 'transfer',
-        calldata: CallData.compile({
-          recipient: aliceAddress,
-          amount: { low: amountLow, high: amountHigh },
-        }),
-      });
-      await provider.waitForTransaction(tx.transaction_hash);
-
-      // Refresh Alice's balance after transaction
+      // Refresh Alice's balance (should already include the STRK from Bob's lock step)
       if (address) {
         const newBalance = await getBalance(address);
         setBalance(newBalance);
       }
 
-      console.log('✅ SIMULATED CLAIM successful! TX:', tx.transaction_hash);
+      // Generate a mock transaction hash for the UI
+      const mockTxHash = '0x' + Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+
+      console.log('✅ SIMULATED CLAIM successful! (STRK was already transferred during lock step)');
       console.log('  Secret "revealed":', secret);
       console.log('  Bob can now use this secret to claim ZEC from the Zcash HTLC');
 
-      return tx.transaction_hash;
+      return mockTxHash;
     } catch (error) {
       console.error('Failed to claim funds:', error);
       throw error;
