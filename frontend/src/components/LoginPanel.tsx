@@ -37,8 +37,9 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
     setError('');
     setRegistrationSuccess(false);
 
-    logWorkflowStart('AUTH', `Registration: ${username} (${side.toUpperCase()})`);
-    logWorkflow('AUTH', 'Creating account...', { username, role: side });
+    const roleName = side === 'alice' ? 'Maker' : 'Taker';
+    logWorkflowStart('AUTH', `Registration: ${username} (${roleName})`);
+    logWorkflow('AUTH', 'Creating account...', { username, role: roleName });
 
     try {
       const response = await api.register(username, password);
@@ -60,7 +61,7 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
           const status = await api.getStatus();
           setPeerID(side, status.peer_id || status.peerID);
 
-          logSuccess('AUTH', 'Login successful', { username, role: side });
+          logSuccess('AUTH', 'Login successful', { username, role: roleName });
         } catch (loginErr: any) {
           logError('AUTH', 'Auto-login failed', loginErr);
           setError('Registration successful, but auto-login failed. Please sign in manually.');
@@ -84,8 +85,9 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
     setLoading(true);
     setError('');
 
-    logWorkflowStart('AUTH', `Login: ${username} (${side.toUpperCase()})`);
-    logWorkflow('AUTH', 'Authenticating...', { username, role: side });
+    const roleName = side === 'alice' ? 'Maker' : 'Taker';
+    logWorkflowStart('AUTH', `Login: ${username} (${roleName})`);
+    logWorkflow('AUTH', 'Authenticating...', { username, role: roleName });
 
     try {
       const user = await api.login(username, password);
@@ -94,7 +96,7 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
       const status = await api.getStatus();
       setPeerID(side, status.peer_id || status.peerID);
 
-      logSuccess('AUTH', 'Login successful', { username, role: side });
+      logSuccess('AUTH', 'Login successful', { username, role: roleName });
     } catch (err: any) {
       logError('AUTH', 'Login failed', err);
       setError(err.response?.data?.error || 'Invalid username or password');
