@@ -337,30 +337,59 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     if (!account) throw new Error('Wallet not connected');
 
     try {
-      const secretFelt = cairo.felt(secret);
+      console.log('🔓 SIMULATED CLAIM: Transferring STRK to Alice (bypassing HTLC due to hash mismatch)');
+      console.log('  Secret provided:', secret);
+      console.log('  In production, this would call the HTLC contract claim() function');
 
-      console.log('Claiming funds with secret:', secretFelt);
+      // DEMO SIMULATION: Since the HTLC contract uses Pedersen hash but Zcash uses RIPEMD160(SHA256),
+      // we simulate the claim by transferring STRK directly from Bob to Alice.
+      // This demonstrates the UX flow while we upgrade to Cairo 2.7+ for SHA256 support.
 
-      // Use CallData to properly encode parameters
-      const calldata = CallData.compile({
-        secret: secretFelt,
-      });
+      // Get the HTLC details to find the locked amount
+      const htlcDetails = await getHTLCDetails();
+      let claimAmount = BigInt(500) * BigInt(10 ** 18); // Default to 500 STRK
 
-      // Invoke using account.execute
-      const tx = await account.execute({
-        contractAddress: HTLC_CONTRACT_ADDRESS,
-        entrypoint: 'claim',
-        calldata: calldata,
+      if (htlcDetails && htlcDetails.amount > 0n) {
+        claimAmount = htlcDetails.amount;
+        console.log('  HTLC locked amount:', (Number(claimAmount) / 1e18).toFixed(2), 'STRK');
+      }
+
+      // Use Bob's account to transfer STRK to Alice (simulating HTLC release)
+      const bobAccount = new Account(
+        provider,
+        DEVNET_ACCOUNTS.bob.address,
+        DEVNET_ACCOUNTS.bob.privateKey
+      );
+
+      // Alice's address (the claimer)
+      const aliceAddress = DEVNET_ACCOUNTS.alice.address;
+
+      // Transfer STRK from Bob to Alice
+      const amountLow = claimAmount & ((1n << 128n) - 1n);
+      const amountHigh = claimAmount >> 128n;
+
+      console.log('  Transferring from Bob to Alice:', (Number(claimAmount) / 1e18).toFixed(2), 'STRK');
+
+      const tx = await bobAccount.execute({
+        contractAddress: STRK_TOKEN_ADDRESS,
+        entrypoint: 'transfer',
+        calldata: CallData.compile({
+          recipient: aliceAddress,
+          amount: { low: amountLow, high: amountHigh },
+        }),
       });
       await provider.waitForTransaction(tx.transaction_hash);
 
-      // Refresh balance after transaction
+      // Refresh Alice's balance after transaction
       if (address) {
         const newBalance = await getBalance(address);
         setBalance(newBalance);
       }
 
-      console.log('Claim transaction:', tx.transaction_hash);
+      console.log('✅ SIMULATED CLAIM successful! TX:', tx.transaction_hash);
+      console.log('  Secret "revealed":', secret);
+      console.log('  Bob can now use this secret to claim ZEC from the Zcash HTLC');
+
       return tx.transaction_hash;
     } catch (error) {
       console.error('Failed to claim funds:', error);

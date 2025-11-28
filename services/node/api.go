@@ -81,6 +81,7 @@ func (api *APIServer) Start() error {
 	// Settlement endpoints
 	mux.HandleFunc("/settlement/lock-zec", api.handleLockZEC)
 	mux.HandleFunc("/settlement/lock-usdc", api.handleLockUSDC)
+	mux.HandleFunc("/settlement/claim-zec", api.handleClaimZEC)
 	mux.HandleFunc("/settlement/update-status", api.handleUpdateSettlementStatus)
 
 	// Network endpoints
@@ -908,6 +909,131 @@ func (api *APIServer) handleLockUSDC(w http.ResponseWriter, r *http.Request) {
 	api.sendJSON(w, LockUSDCResponse{
 		Status:           "usdc_locked",
 		SettlementStatus: string(settlementStatus),
+	})
+}
+
+// ClaimZECRequest is the request to claim ZEC from an HTLC
+type ClaimZECRequest struct {
+	ProposalID string `json:"proposal_id"`
+	Secret     string `json:"secret"`
+	SessionID  string `json:"session_id"`
+}
+
+// ClaimZECResponse is the response from claiming ZEC
+type ClaimZECResponse struct {
+	Status           string  `json:"status"`
+	SettlementStatus string  `json:"settlement_status"`
+	TxID             string  `json:"txid,omitempty"`
+	Amount           float64 `json:"amount,omitempty"`
+}
+
+func (api *APIServer) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req ClaimZECRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		api.sendError(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ProposalID == "" {
+		api.sendError(w, "Proposal ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Secret == "" {
+		api.sendError(w, "Secret is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get username from session
+	authMgr := api.app.GetAuthManager()
+	session, err := authMgr.GetSession(req.SessionID)
+	if err != nil {
+		log.Printf("handleClaimZEC: GetSession failed for SessionID=%s: %v", req.SessionID, err)
+		api.sendError(w, "Authentication required: "+err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	username := session.Username
+
+	// Get user's Zcash wallet address
+	walletMgr := api.app.GetWalletManager()
+	wallet, err := walletMgr.GetWallet(username)
+	if err != nil {
+		api.sendError(w, "Failed to get wallet for user: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	bobZcashAddress := wallet.ZcashAddress
+	if bobZcashAddress == "" {
+		api.sendError(w, "No Zcash wallet found for user", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("🔓 Claiming ZEC for proposal %s to address %s", req.ProposalID, bobZcashAddress)
+
+	// Forward the claim request to the settlement service
+	claimReq := map[string]interface{}{
+		"proposal_id":       req.ProposalID,
+		"secret":            req.Secret,
+		"recipient_address": bobZcashAddress,
+	}
+
+	claimReqBody, err := json.Marshal(claimReq)
+	if err != nil {
+		api.sendError(w, "Failed to marshal claim request", http.StatusInternalServerError)
+		return
+	}
+
+	// Call settlement service
+	claimResp, err := http.Post("http://settlement-service:8090/api/claim-zec", "application/json", bytes.NewReader(claimReqBody))
+	if err != nil {
+		log.Printf("Failed to call settlement service: %v", err)
+		api.sendError(w, fmt.Sprintf("Failed to connect to settlement service: %v", err), http.StatusInternalServerError)
+		return
+	}
+	defer claimResp.Body.Close()
+
+	// Read and parse response
+	var settlementResp struct {
+		Success   bool    `json:"success"`
+		TxID      string  `json:"txid"`
+		Amount    float64 `json:"amount"`
+		Recipient string  `json:"recipient"`
+		Status    string  `json:"status"`
+		Error     string  `json:"error,omitempty"`
+	}
+
+	if err := json.NewDecoder(claimResp.Body).Decode(&settlementResp); err != nil {
+		// Try to read raw body for error message
+		api.sendError(w, "Failed to parse settlement service response", http.StatusInternalServerError)
+		return
+	}
+
+	if claimResp.StatusCode != http.StatusOK {
+		api.sendError(w, fmt.Sprintf("Settlement service error: %s", settlementResp.Error), claimResp.StatusCode)
+		return
+	}
+
+	// Update proposal settlement status
+	api.app.proposalsMux.Lock()
+	if proposal, exists := api.app.proposals[ProposalID(req.ProposalID)]; exists {
+		completedStatus := SettlementStatusComplete
+		proposal.SettlementStatus = &completedStatus
+	}
+	api.app.proposalsMux.Unlock()
+
+	log.Printf("✅ ZEC claimed successfully! TX: %s", settlementResp.TxID)
+
+	api.sendJSON(w, ClaimZECResponse{
+		Status:           "zec_claimed",
+		SettlementStatus: "completed",
+		TxID:             settlementResp.TxID,
+		Amount:           settlementResp.Amount,
 	})
 }
 

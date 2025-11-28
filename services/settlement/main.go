@@ -657,11 +657,147 @@ func (s *SettlementService) handleAddressBalance(w http.ResponseWriter, r *http.
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleClaimZEC handles Bob's request to claim ZEC from the HTLC
+func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		ProposalID       string `json:"proposal_id"`
+		Secret           string `json:"secret"`
+		RecipientAddress string `json:"recipient_address"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.ProposalID == "" {
+		http.Error(w, "Proposal ID is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.Secret == "" {
+		http.Error(w, "Secret is required", http.StatusBadRequest)
+		return
+	}
+
+	if req.RecipientAddress == "" {
+		http.Error(w, "Recipient address is required", http.StatusBadRequest)
+		return
+	}
+
+	// Look up the settlement state
+	s.mu.RLock()
+	state, exists := s.settlements[req.ProposalID]
+	s.mu.RUnlock()
+
+	if !exists {
+		http.Error(w, "Settlement not found", http.StatusNotFound)
+		return
+	}
+
+	// Verify we have the HTLC info needed for claiming
+	if state.HTLCLockTxID == "" {
+		http.Error(w, "HTLC not yet locked", http.StatusBadRequest)
+		return
+	}
+
+	if len(state.HTLCScript) == 0 {
+		http.Error(w, "HTLC script not available", http.StatusBadRequest)
+		return
+	}
+
+	// Decode the secret from the request
+	// The secret could be hex-encoded or raw string
+	var secretBytes []byte
+	if decoded, err := hex.DecodeString(req.Secret); err == nil && len(decoded) == 32 {
+		secretBytes = decoded
+	} else {
+		// Treat as raw string (for demo - user enters the secret phrase)
+		secretBytes = []byte(req.Secret)
+	}
+
+	// Verify the secret matches the stored hash
+	// Hash is RIPEMD160(SHA256(secret))
+	shaHash := sha256.Sum256(secretBytes)
+	ripemdHasher := ripemd160.New()
+	ripemdHasher.Write(shaHash[:])
+	computedHash := ripemdHasher.Sum(nil)
+	computedHashHex := hex.EncodeToString(computedHash)
+
+	if computedHashHex != state.HashHex {
+		log.Printf("Secret verification failed: computed=%s, expected=%s", computedHashHex, state.HashHex)
+		http.Error(w, "Invalid secret - hash does not match", http.StatusBadRequest)
+		return
+	}
+
+	log.Printf("✅ Secret verified for proposal %s", req.ProposalID)
+
+	// Get the HTLC amount (stored in cents, need to convert to ZEC)
+	htlcAmountZEC := float64(state.AmountZEC)
+
+	// Create claim parameters
+	claimParams := &zcash.HTLCClaimParams{
+		HTLCTxID:      state.HTLCLockTxID,
+		HTLCVout:      0, // Assuming the HTLC output is at index 0
+		HTLCAmount:    htlcAmountZEC,
+		RedeemScript:  state.HTLCScript,
+		Secret:        secretBytes,
+		RecipientAddr: req.RecipientAddress,
+	}
+
+	// Attempt to claim the HTLC
+	txid, err := s.zcashClient.ClaimHTLC(claimParams)
+	if err != nil {
+		log.Printf("Failed to claim HTLC: %v", err)
+		http.Error(w, fmt.Sprintf("Failed to claim HTLC: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Mine a block to confirm the claim transaction (regtest only)
+	s.zcashClient.Generate(1)
+	log.Printf("⛏️ Mined 1 block to confirm HTLC claim")
+
+	// Update settlement state
+	s.mu.Lock()
+	state.Status = "completed"
+	state.UpdatedAt = time.Now()
+	s.mu.Unlock()
+
+	log.Printf("✅ ZEC claimed successfully! TX: %s", txid)
+
+	response := map[string]interface{}{
+		"success":          true,
+		"txid":             txid,
+		"amount":           htlcAmountZEC,
+		"recipient":        req.RecipientAddress,
+		"status":           "completed",
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // StartHTTPServer starts the HTTP API server
 func (s *SettlementService) StartHTTPServer(port string) {
 	http.HandleFunc("/api/create-address", s.handleCreateAddress)
 	http.HandleFunc("/api/fund-address", s.handleFundAddress)
 	http.HandleFunc("/api/address-balance", s.handleAddressBalance)
+	http.HandleFunc("/api/claim-zec", s.handleClaimZEC)
 
 	log.Printf("✓ Starting HTTP API server on :%s", port)
 	go func() {
