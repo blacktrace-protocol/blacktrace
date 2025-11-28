@@ -7,6 +7,7 @@ import { aliceAPI, bobAPI } from '../lib/api';
 import { useStore } from '../lib/store';
 import type { NodeSide } from '../lib/types';
 import { CheckCircle, Wallet } from 'lucide-react';
+import { logWorkflowStart, logWorkflow, logSuccess, logError } from '../lib/logger';
 
 interface LoginPanelProps {
   side: NodeSide;
@@ -36,24 +37,37 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
     setError('');
     setRegistrationSuccess(false);
 
+    logWorkflowStart('AUTH', `Registration: ${username} (${side.toUpperCase()})`);
+    logWorkflow('AUTH', 'Creating account...', { username, role: side });
+
     try {
       const response = await api.register(username, password);
       setRegistrationSuccess(true);
       setZcashAddress(response.zcash_address || '');
 
+      logSuccess('AUTH', 'Account created', {
+        username,
+        zcashAddress: response.zcash_address?.slice(0, 20) + '...'
+      });
+
       // Show success message for a moment, then auto-login
       setTimeout(async () => {
         try {
+          logWorkflow('AUTH', 'Auto-login after registration...');
           const user = await api.login(username, password);
           setUser(side, user);
 
           const status = await api.getStatus();
           setPeerID(side, status.peer_id || status.peerID);
+
+          logSuccess('AUTH', 'Login successful', { username, role: side });
         } catch (loginErr: any) {
+          logError('AUTH', 'Auto-login failed', loginErr);
           setError('Registration successful, but auto-login failed. Please sign in manually.');
         }
       }, 2000);
     } catch (err: any) {
+      logError('AUTH', 'Registration failed', err);
       setError(err.response?.data?.error || 'Registration failed');
       setRegistrationSuccess(false);
     } finally {
@@ -70,13 +84,19 @@ export function LoginPanel({ side, title }: LoginPanelProps) {
     setLoading(true);
     setError('');
 
+    logWorkflowStart('AUTH', `Login: ${username} (${side.toUpperCase()})`);
+    logWorkflow('AUTH', 'Authenticating...', { username, role: side });
+
     try {
       const user = await api.login(username, password);
       setUser(side, user);
 
       const status = await api.getStatus();
       setPeerID(side, status.peer_id || status.peerID);
+
+      logSuccess('AUTH', 'Login successful', { username, role: side });
     } catch (err: any) {
+      logError('AUTH', 'Login failed', err);
       setError(err.response?.data?.error || 'Invalid username or password');
     } finally {
       setLoading(false);

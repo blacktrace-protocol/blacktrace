@@ -7,6 +7,7 @@ import { Lock, RefreshCw, CheckCircle, AlertCircle, Unlock, Clock, Zap, Coins, A
 import type { Proposal, Order } from '../lib/types';
 import { useTakerStarknet } from '../lib/starknet';
 import { Account, RpcProvider, CallData } from 'starknet';
+import { logWorkflowStart, logSettlement, logStateChange, logSuccess, logError } from '../lib/logger';
 
 // Devnet faucet for STRK funding (using 3rd pre-deployed account, not Alice or Bob)
 const FAUCET_ACCOUNT = {
@@ -36,7 +37,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
   const [fundingSuccess, setFundingSuccess] = useState<string | null>(null);
 
   // Starknet wallet context for STRK balance and locking
-  const { account: starknetAccount, address: starknetAddress, balance: strkBalance, connectWallet: connectStarknet, role, lockFundsWithHash } = useTakerStarknet();
+  const { account: starknetAccount, address: starknetAddress, balance: strkBalance, connectWallet: connectStarknet, role } = useTakerStarknet();
 
 
   const fetchSettlementProposals = async () => {
@@ -56,12 +57,13 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
           const response = await bobAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
             // Filter proposals where Alice has locked ZEC or both are locked (waiting for claim)
+            // strk_claimed = Alice claimed her STRK, Bob can now claim ZEC
             const settlementProposals = response.proposals
               .filter(p =>
                 p.id &&
                 p.id.trim() !== '' &&
                 p.status === 'accepted' &&
-                (p.settlement_status === 'alice_locked' || p.settlement_status === 'both_locked' || p.settlement_status === 'alice_claimed')
+                (p.settlement_status === 'alice_locked' || p.settlement_status === 'both_locked' || p.settlement_status === 'alice_claimed' || p.settlement_status === 'strk_claimed')
               )
               .sort((a, b) => {
                 const timeA = a.timestamp ? new Date(a.timestamp).getTime() : 0;
@@ -160,6 +162,13 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
   const handleLockSTRK = async (proposal: Proposal, amount: number, price: number) => {
     const totalSTRK = amount * price;
 
+    logWorkflowStart('SETTLEMENT', 'Bob Locking STRK');
+    logSettlement('Preparing STRK lock on Starknet', 'alice_locked', {
+      balance: `${strkBalance} STRK`,
+      required: `${totalSTRK.toFixed(2)} STRK`,
+      hashLock: proposal.hash_lock?.substring(0, 12) + '...'
+    });
+
     // Check STRK balance before locking
     if (strkBalance && parseFloat(strkBalance) < totalSTRK) {
       setError(`Insufficient STRK balance! You have ${strkBalance} STRK but need ${totalSTRK.toFixed(2)} STRK. Please fund your wallet first.`);
@@ -176,34 +185,54 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       setLockingProposal(proposal.id);
       setError('');
 
-      console.log('🔐 Starknet HTLC Lock:');
-      console.log(`  Proposal ID: ${proposal.id}`);
-      console.log(`  Hash Lock: ${proposal.hash_lock}`);
-      console.log(`  Amount to lock: ${totalSTRK.toFixed(2)} STRK`);
-      console.log(`  Current balance: ${strkBalance} STRK`);
-      console.log(`  Receiver (Alice): ${ALICE_STARKNET_ADDRESS}`);
+      logSettlement('Locking STRK (demo mode)', 'alice_locked', {
+        amount: `${totalSTRK.toFixed(2)} STRK`,
+        proposalId: proposal.id.substring(0, 8) + '...'
+      });
 
-      // Convert STRK to wei (18 decimals)
-      const amountWei = BigInt(Math.floor(totalSTRK * 1e18)).toString();
+      // DEMO SIMULATION: The HTLC contract uses Pedersen hash but Zcash uses RIPEMD160(SHA256)
+      // We simulate the lock by transferring STRK to Alice directly (same as simulated claim)
+      // This demonstrates the UX flow while we upgrade to Cairo 2.7+ for SHA256 support
 
-      // Call the actual Starknet HTLC contract to lock funds
-      const txHash = await lockFundsWithHash(
-        proposal.hash_lock,
-        ALICE_STARKNET_ADDRESS,
-        amountWei,
-        60 // 60 minutes timeout
+      const provider = new RpcProvider({ nodeUrl: DEVNET_RPC_URL });
+
+      // Use Bob's account to transfer STRK to Alice (simulating HTLC lock)
+      // In production, this would go to the HTLC contract
+      const bobAccount = new Account(
+        provider,
+        starknetAddress!,
+        '0x0000000000000000000000000000000071d7bb07b9a64f6f78ac4c816aff4da9' // Bob's private key
       );
 
-      console.log('✅ STRK locked in HTLC contract! TX:', txHash);
+      const amountWei = BigInt(Math.floor(totalSTRK * 1e18));
+      const amountLow = amountWei & ((1n << 128n) - 1n);
+      const amountHigh = amountWei >> 128n;
+
+      const tx = await bobAccount.execute({
+        contractAddress: STRK_TOKEN_ADDRESS,
+        entrypoint: 'transfer',
+        calldata: CallData.compile({
+          recipient: ALICE_STARKNET_ADDRESS,
+          amount: { low: amountLow, high: amountHigh },
+        }),
+      });
+      await provider.waitForTransaction(tx.transaction_hash);
+
+      // Refresh Bob's balance
+      if (starknetAddress && role) {
+        await connectStarknet(role);
+      }
+
+      logStateChange('SETTLEMENT', 'alice_locked', 'both_locked', proposal.id.substring(0, 8) + '...');
+      logSuccess('SETTLEMENT', 'STRK locked - Waiting for Alice to claim', { txHash: tx.transaction_hash.substring(0, 12) + '...' });
 
       // Call backend API to update settlement status
-      const response = await bobAPI.lockUSDC(proposal.id);
-      console.log(`✅ Backend: ${response.status}, settlement_status: ${response.settlement_status}`);
+      await bobAPI.lockUSDC(proposal.id);
 
       // Refresh proposals to see updated status
       fetchSettlementProposals();
     } catch (err: any) {
-      console.error('Failed to lock STRK:', err);
+      logError('SETTLEMENT', 'Failed to lock STRK', err);
       setError(err.response?.data?.error || err.message || 'Failed to lock STRK on Starknet');
     } finally {
       setLockingProposal(null);
@@ -222,13 +251,17 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       setError('');
       setClaimSuccess(null);
 
-      console.log('🔓 Claiming ZEC with secret:', secret);
+      logWorkflowStart('SETTLEMENT', 'Bob Claiming ZEC');
+      logSettlement('Claiming ZEC from Zcash HTLC', 'strk_claimed', {
+        proposalId: proposalId.substring(0, 8) + '...'
+      });
 
       // Call backend API to claim ZEC using the revealed secret
       // The secret was revealed on-chain when Alice claimed STRK
-      const response = await bobAPI.claimZEC(proposalId, secret);
+      await bobAPI.claimZEC(proposalId, secret);
 
-      console.log('✅ ZEC claimed successfully!', response);
+      logStateChange('SETTLEMENT', 'strk_claimed', 'complete', proposalId.substring(0, 8) + '...');
+      logSuccess('SETTLEMENT', 'ZEC claimed! Atomic swap complete');
       setClaimSuccess(`ZEC claimed successfully! Transaction submitted.`);
 
       // Clear the secret input
@@ -240,7 +273,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       // Clear success message after 5 seconds
       setTimeout(() => setClaimSuccess(null), 5000);
     } catch (err: any) {
-      console.error('Failed to claim ZEC:', err);
+      logError('SETTLEMENT', 'Failed to claim ZEC', err);
       setError(err.response?.data?.error || err.message || 'Failed to claim ZEC. Make sure the secret is correct.');
     } finally {
       setClaimingProposal(null);
@@ -353,7 +386,7 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
                   const isSTRK = assetSymbol === 'STRK';
                   const isAliceLocked = proposal.settlement_status === 'alice_locked';
                   const isBothLocked = proposal.settlement_status === 'both_locked';
-                  const isAliceClaimed = proposal.settlement_status === 'alice_claimed';
+                  const isAliceClaimed = proposal.settlement_status === 'alice_claimed' || proposal.settlement_status === 'strk_claimed';
 
                   return (
                     <div

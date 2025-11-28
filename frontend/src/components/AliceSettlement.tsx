@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
-import { aliceAPI } from '../lib/api';
+import { aliceAPI, bobAPI } from '../lib/api';
 import { Lock, RefreshCw, Clock, CheckCircle, AlertTriangle, Unlock, Zap } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 import { useStore } from '../lib/store';
 import { useMakerStarknet } from '../lib/starknet';
+import { logWorkflowStart, logSettlement, logStateChange, logSuccess, logError } from '../lib/logger';
 
 interface AliceSettlementProps {
   onCountChange?: (count: number) => void;
@@ -65,11 +66,14 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
           const response = await aliceAPI.getProposalsForOrder(order.id);
           if (response.proposals && response.proposals.length > 0) {
             // Filter proposals that are accepted and need action from Alice
+            // Exclude strk_claimed (Alice is done) and complete (fully settled)
             const settlementProposals = response.proposals
               .filter(p =>
                 p.id &&
                 p.id.trim() !== '' &&
                 p.status === 'accepted' &&
+                p.settlement_status !== 'strk_claimed' &&
+                p.settlement_status !== 'complete' &&
                 (p.settlement_status === 'ready' || p.settlement_status === 'alice_locked' || p.settlement_status === 'both_locked' || !p.settlement_status)
               )
               .sort((a, b) => {
@@ -134,20 +138,19 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
 
       // Compute hash of secret (in real implementation this would be SHA256)
       // For now we'll send the secret to the backend which will compute the hash
-      console.log('🔐 Zcash HTLC Lock:');
-      console.log(`  Secret: ${secret}`);
-      console.log(`  Proposal ID: ${proposalId}`);
-      console.log(`  Amount: ${amountZEC.toFixed(2)} ZEC`);
-      console.log(`  Wallet Balance: ${walletBalance.toFixed(8)} ZEC`);
+      logWorkflowStart('SETTLEMENT', 'Alice Locking ZEC');
+      logSettlement('Creating HTLC on Zcash', 'ready', {
+        amount: `${amountZEC.toFixed(2)} ZEC`,
+        proposalId: proposalId.substring(0, 8) + '...'
+      });
 
       // Simulate wallet popup and transaction signing
       await new Promise(resolve => setTimeout(resolve, 1500));
 
-      console.log('✅ ZEC locked with HTLC, calling backend API...');
-
       // Call backend API to update settlement status (include secret for hash computation)
-      const response = await aliceAPI.lockZEC(proposalId, secret);
-      console.log(`✅ Backend: ${response.status}, settlement_status: ${response.settlement_status}`);
+      await aliceAPI.lockZEC(proposalId, secret);
+      logStateChange('SETTLEMENT', 'ready', 'alice_locked', proposalId.substring(0, 8) + '...');
+      logSuccess('SETTLEMENT', 'ZEC locked in HTLC - Waiting for Bob to lock STRK');
 
       // Store the secret for later use when claiming STRK
       setStoredSecrets(prev => ({ ...prev, [proposalId]: secret }));
@@ -159,17 +162,23 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       fetchSettlementProposals();
       fetchWalletBalance();
     } catch (err: any) {
+      logError('SETTLEMENT', 'Failed to lock ZEC', err);
       setError(err.response?.data?.error || err.message || 'Failed to lock ZEC');
     } finally {
       setLockingProposal(null);
     }
   };
 
-  const handleClaimSTRK = async (proposalId: string, manualSecret?: string) => {
+  const handleClaimSTRK = async (proposalId: string, hashLock: string, amountSTRK: number, manualSecret?: string) => {
     // Use stored secret first, then fall back to manual input
     const secret = storedSecrets[proposalId] || manualSecret;
     if (!secret) {
       setError('No secret found. Please enter the secret you used when locking ZEC.');
+      return;
+    }
+
+    if (!hashLock) {
+      setError('No hash lock found for this proposal. Cannot claim STRK.');
       return;
     }
 
@@ -188,15 +197,31 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       setError('');
       setClaimSuccess(null);
 
-      console.log('🔓 Claiming STRK with secret:', secret);
-      console.log('  This will reveal the secret on-chain for Bob to see');
+      logWorkflowStart('SETTLEMENT', 'Alice Claiming STRK');
+      logSettlement('Claiming STRK from Starknet', 'both_locked', {
+        amount: `${amountSTRK} STRK`,
+        hashLock: hashLock.substring(0, 12) + '...'
+      });
 
-      // Call the Starknet claim function (this reveals the secret on-chain)
-      const txHash = await claimFunds(secret);
+      // Call the Starknet claim function with the correct amount
+      const txHash = await claimFunds(hashLock, secret, amountSTRK);
 
-      console.log('✅ STRK claimed successfully! TX:', txHash);
-      console.log('  Secret is now visible on Starknet - Bob can use it to claim ZEC');
-      setClaimSuccess(`STRK claimed! TX: ${txHash.slice(0, 10)}... Secret revealed on-chain.`);
+      logStateChange('SETTLEMENT', 'both_locked', 'strk_claimed', proposalId.substring(0, 8) + '...');
+      logSuccess('SETTLEMENT', 'STRK claimed! Secret revealed on-chain', { txHash: txHash.substring(0, 12) + '...' });
+
+      // Update settlement status to "strk_claimed" on BOTH nodes so Bob can see it
+      try {
+        // Update Alice's node
+        await aliceAPI.updateSettlementStatus(proposalId, 'strk_claimed');
+        // Also update Bob's node (since P2P doesn't sync settlement status automatically)
+        await bobAPI.updateSettlementStatus(proposalId, 'strk_claimed');
+        logSettlement('Status updated on both nodes - Bob can now claim ZEC', 'strk_claimed');
+      } catch (statusErr) {
+        logError('SETTLEMENT', 'Failed to update status (non-blocking)', statusErr);
+        // Continue anyway - the STRK claim was successful
+      }
+
+      setClaimSuccess(`STRK claimed! TX: ${txHash.slice(0, 10)}... Secret revealed - Bob can now claim ZEC.`);
 
       // Clear stored secret (it's now public)
       setStoredSecrets(prev => {
@@ -211,7 +236,7 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
       // Clear success message after 5 seconds
       setTimeout(() => setClaimSuccess(null), 5000);
     } catch (err: any) {
-      console.error('Failed to claim STRK:', err);
+      logError('SETTLEMENT', 'Failed to claim STRK', err);
       setError(err.message || 'Failed to claim STRK. Make sure the secret is correct.');
     } finally {
       setClaimingProposal(null);
@@ -460,8 +485,8 @@ export function AliceSettlement({ onCountChange }: AliceSettlementProps = {}) {
                             <Button
                               size="sm"
                               className="w-full bg-green-600 hover:bg-green-700"
-                              onClick={() => handleClaimSTRK(proposal.id, lockSecret[proposal.id])}
-                              disabled={claimingProposal === proposal.id || (!storedSecrets[proposal.id] && !lockSecret[proposal.id])}
+                              onClick={() => handleClaimSTRK(proposal.id, proposal.hash_lock || '', proposal.amount / 100 * proposal.price, lockSecret[proposal.id])}
+                              disabled={claimingProposal === proposal.id || (!storedSecrets[proposal.id] && !lockSecret[proposal.id]) || !proposal.hash_lock}
                             >
                               {claimingProposal === proposal.id ? (
                                 <>

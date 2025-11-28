@@ -5,6 +5,7 @@ import { Button } from './ui/button';
 import { aliceAPI } from '../lib/api';
 import { useStore } from '../lib/store';
 import { DollarSign, TrendingUp, Lock, Zap } from 'lucide-react';
+import { logWorkflowStart, logWorkflow, logSuccess, logError } from '../lib/logger';
 
 interface User {
   username: string;
@@ -49,6 +50,13 @@ export function CreateOrderForm() {
     try {
       setLoading(true);
 
+      logWorkflowStart('ORDER', `New Order: ${amount} ZEC for ${stablecoin}`);
+      logWorkflow('ORDER', 'Creating order...', {
+        amount: `${amount} ZEC`,
+        priceRange: `${minPrice}-${maxPrice} ${stablecoin}`,
+        taker: takerUsername || 'Public'
+      });
+
       // Convert amount to cents, prices stay as dollars
       const orderData: any = {
         session_id: user.token,
@@ -65,6 +73,7 @@ export function CreateOrderForm() {
 
       const response = await aliceAPI.createOrder(orderData);
 
+      logSuccess('ORDER', 'Order created', { orderId: response.order_id.substring(0, 8) + '...' });
       setSuccess(`Order created successfully! ID: ${response.order_id.substring(0, 8)}...`);
       setAmount('');
       setMinPrice('');
@@ -73,6 +82,7 @@ export function CreateOrderForm() {
       // Refresh orders list
       setTimeout(() => setSuccess(''), 3000);
     } catch (err: any) {
+      logError('ORDER', 'Order creation failed', err);
       setError(err.response?.data?.error || 'Failed to create order');
     } finally {
       setLoading(false);

@@ -28,7 +28,7 @@ function mapProposal(backendProposal: BackendProposal): Proposal {
     encryptedData: backendProposal.encrypted_data,
     timestamp: backendProposal.timestamp,
     status: backendProposal.status.toLowerCase() as "pending" | "accepted" | "rejected",
-    settlement_status: backendProposal.settlement_status as "ready" | "alice_locked" | "bob_locked" | "both_locked" | "alice_claimed" | "claiming" | "complete" | undefined,
+    settlement_status: backendProposal.settlement_status as "ready" | "alice_locked" | "bob_locked" | "both_locked" | "alice_claimed" | "strk_claimed" | "claiming" | "complete" | undefined,
     hash_lock: backendProposal.hash_lock,
   };
 }
@@ -170,6 +170,14 @@ export class BlackTraceAPI {
       proposal_id: proposalId,
       secret: secret,
       session_id: this.token,
+    });
+    return response.data;
+  }
+
+  async updateSettlementStatus(proposalId: string, settlementStatus: string): Promise<{ status: string }> {
+    const response = await this.client.post<{ status: string }>('/settlement/update-status', {
+      proposal_id: proposalId,
+      settlement_status: settlementStatus,
     });
     return response.data;
   }

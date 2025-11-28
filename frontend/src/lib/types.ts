@@ -26,7 +26,7 @@ export interface Proposal {
   encryptedData?: string;
   timestamp: string;
   status: "pending" | "accepted" | "rejected";
-  settlement_status?: "ready" | "alice_locked" | "bob_locked" | "both_locked" | "alice_claimed" | "claiming" | "complete";
+  settlement_status?: "ready" | "alice_locked" | "bob_locked" | "both_locked" | "alice_claimed" | "strk_claimed" | "claiming" | "complete";
   hash_lock?: string; // HTLC hash lock (set when Alice locks ZEC, Bob uses this for Starknet HTLC)
 }
 

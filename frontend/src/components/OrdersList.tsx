@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { bobAPI } from '../lib/api';
 import { ShoppingCart, DollarSign, RefreshCw, Unlock } from 'lucide-react';
 import type { Order } from '../lib/types';
+import { logWorkflow, logSuccess, logError } from '../lib/logger';
 
 interface OrdersListProps {
   onSelectOrder: (order: Order) => void;
@@ -52,16 +53,15 @@ export function OrdersList({ onSelectOrder, onCountChange }: OrdersListProps) {
   };
 
   const handleRequestDetails = async (orderId: string) => {
-    console.log('Request Details clicked for order:', orderId);
+    logWorkflow('ORDER', 'Requesting encrypted order details...', { orderId: orderId.substring(0, 8) + '...' });
     try {
       setRequestingDetails(prev => new Set(prev).add(orderId));
       setError('');
-      console.log('Sending request to backend...');
-      const response = await bobAPI.requestOrderDetails(orderId);
-      console.log('Request sent successfully:', response);
+      await bobAPI.requestOrderDetails(orderId);
+      logSuccess('ORDER', 'Details request sent via P2P', { orderId: orderId.substring(0, 8) + '...' });
       // Details will arrive via P2P and appear in the next poll
     } catch (err: any) {
-      console.error('Request Details error:', err);
+      logError('ORDER', 'Failed to request details', err);
       setError(err.response?.data?.error || 'Failed to request order details');
     } finally {
       setRequestingDetails(prev => {

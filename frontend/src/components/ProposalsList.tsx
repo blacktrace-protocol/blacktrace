@@ -4,6 +4,7 @@ import { Button } from './ui/button';
 import { aliceAPI } from '../lib/api';
 import { FileText, Check, RefreshCw } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
+import { logWorkflowStart, logWorkflow, logStateChange, logSuccess, logError } from '../lib/logger';
 
 interface ProposalsListProps {
   onCountChange?: (count: number) => void;
@@ -69,20 +70,28 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
 
   const handleAccept = async (proposalId: string) => {
     try {
+      logWorkflowStart('PROPOSAL', 'Accepting Proposal');
+      logWorkflow('PROPOSAL', 'Processing acceptance...', { proposalId: proposalId.substring(0, 8) + '...' });
       await aliceAPI.acceptProposal(proposalId);
+      logStateChange('PROPOSAL', 'pending', 'accepted', proposalId.substring(0, 8) + '...');
+      logSuccess('PROPOSAL', 'Proposal accepted - Ready for settlement');
       // Refresh proposals after accepting
       fetchOrdersAndProposals();
     } catch (err: any) {
+      logError('PROPOSAL', 'Accept failed', err);
       setError(err.response?.data?.error || 'Failed to accept proposal');
     }
   };
 
   const handleReject = async (proposalId: string) => {
     try {
+      logWorkflow('PROPOSAL', 'Rejecting proposal...', { proposalId: proposalId.substring(0, 8) + '...' });
       await aliceAPI.rejectProposal(proposalId);
+      logStateChange('PROPOSAL', 'pending', 'rejected', proposalId.substring(0, 8) + '...');
       // Refresh proposals after rejecting
       fetchOrdersAndProposals();
     } catch (err: any) {
+      logError('PROPOSAL', 'Reject failed', err);
       setError(err.response?.data?.error || 'Failed to reject proposal');
     }
   };

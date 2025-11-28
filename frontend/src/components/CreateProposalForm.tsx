@@ -6,6 +6,7 @@ import { bobAPI } from '../lib/api';
 import { useStore } from '../lib/store';
 import { Send, DollarSign, X } from 'lucide-react';
 import type { Order, Proposal } from '../lib/types';
+import { logWorkflowStart, logWorkflow, logSuccess, logError } from '../lib/logger';
 
 interface CreateProposalFormProps {
   order: Order;
@@ -41,6 +42,14 @@ export function CreateProposalForm({ order, onClose, onSuccess, initialProposal 
     try {
       setLoading(true);
 
+      logWorkflowStart('PROPOSAL', `New Proposal for Order`);
+      logWorkflow('PROPOSAL', 'Creating proposal...', {
+        orderId: orderId.substring(0, 8) + '...',
+        amount: `${amount} ZEC`,
+        price: `$${price}/ZEC`,
+        total: `$${(parseFloat(amount) * parseFloat(price)).toFixed(2)}`
+      });
+
       // Convert amount to cents, price stays as dollars
       await bobAPI.createProposal({
         session_id: user.token,
@@ -49,9 +58,11 @@ export function CreateProposalForm({ order, onClose, onSuccess, initialProposal 
         price: parseFloat(price),
       });
 
+      logSuccess('PROPOSAL', 'Proposal sent via P2P', { orderId: orderId.substring(0, 8) + '...' });
       onSuccess();
       onClose();
     } catch (err: any) {
+      logError('PROPOSAL', 'Proposal creation failed', err);
       setError(err.response?.data?.error || 'Failed to create proposal');
     } finally {
       setLoading(false);
