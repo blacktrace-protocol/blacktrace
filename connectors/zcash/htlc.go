@@ -194,6 +194,43 @@ func base58Encode(input []byte) string {
 	return encoded
 }
 
+// base58Decode decodes a base58 string to bytes
+func base58Decode(input string) []byte {
+	const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+	// Build reverse lookup table
+	alphabetMap := make(map[byte]int64)
+	for i, c := range alphabet {
+		alphabetMap[byte(c)] = int64(i)
+	}
+
+	// Decode
+	result := big.NewInt(0)
+	fiftyEight := big.NewInt(58)
+	for i := 0; i < len(input); i++ {
+		val, ok := alphabetMap[input[i]]
+		if !ok {
+			return nil // Invalid character
+		}
+		result.Mul(result, fiftyEight)
+		result.Add(result, big.NewInt(val))
+	}
+
+	// Convert to bytes
+	decoded := result.Bytes()
+
+	// Add leading zeros for leading '1's
+	leadingZeros := 0
+	for i := 0; i < len(input) && input[i] == '1'; i++ {
+		leadingZeros++
+	}
+	if leadingZeros > 0 {
+		decoded = append(make([]byte, leadingZeros), decoded...)
+	}
+
+	return decoded
+}
+
 // Hash160 computes RIPEMD160(SHA256(data))
 func Hash160(data []byte) []byte {
 	shaHash := sha256.Sum256(data)
