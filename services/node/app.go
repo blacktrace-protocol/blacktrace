@@ -54,8 +54,10 @@ type AppCommand struct {
 	TakerUsername string // Optional: username of specific taker to encrypt for
 
 	// Negotiation
-	OrderID OrderID
-	Price   uint64
+	OrderID            OrderID
+	Price              uint64
+	ProposerUsername   string // Username of proposer (for proposals)
+	ProposerPubKeyHash string // Proposer's pubkey hash for HTLC (for proposals)
 
 	// Response channel for synchronous operations
 	ResponseCh chan interface{}
@@ -457,7 +459,7 @@ func (app *BlackTraceApp) handleAppCommand(cmd AppCommand) {
 		app.requestOrderDetails(cmd.OrderID)
 
 	case "propose":
-		app.proposePrice(cmd.OrderID, cmd.Price, cmd.Amount)
+		app.proposePrice(cmd.OrderID, cmd.Price, cmd.Amount, cmd.ProposerUsername, cmd.ProposerPubKeyHash)
 	}
 }
 
@@ -841,17 +843,19 @@ func (app *BlackTraceApp) sendSignedMessage(to PeerID, msgType string, payload i
 }
 
 // proposePrice proposes a price for an order
-func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
+func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64, proposerUsername, proposerPubKeyHash string) {
 	proposalID := NewProposalID(orderID)
 
 	proposal := Proposal{
-		ProposalID: proposalID,
-		OrderID:    orderID,
-		Price:      price,
-		Amount:     amount,
-		ProposerID: app.GetPeerID(),
-		Status:     ProposalStatusPending,
-		Timestamp:  time.Now(),
+		ProposalID:         proposalID,
+		OrderID:            orderID,
+		Price:              price,
+		Amount:             amount,
+		ProposerID:         app.GetPeerID(),
+		ProposerUsername:   proposerUsername,
+		ProposerPubKeyHash: proposerPubKeyHash, // Bob's pubkey hash for HTLC
+		Status:             ProposalStatusPending,
+		Timestamp:          time.Now(),
 	}
 
 	// Store the proposal locally
@@ -880,7 +884,7 @@ func (app *BlackTraceApp) proposePrice(orderID OrderID, price, amount uint64) {
 		}
 	}
 
-	log.Printf("App: Proposed price $%d for order %s (Proposal ID: %s)", price, orderID, proposalID)
+	log.Printf("App: Proposed price $%d for order %s (Proposal ID: %s, proposer: %s)", price, orderID, proposalID, proposerUsername)
 }
 
 // CreateOrder creates an order (synchronous API for external use)
@@ -923,12 +927,14 @@ func (app *BlackTraceApp) RequestOrderDetails(orderID OrderID) {
 }
 
 // ProposePrice proposes a price (async)
-func (app *BlackTraceApp) ProposePrice(orderID OrderID, price, amount uint64) {
+func (app *BlackTraceApp) ProposePrice(orderID OrderID, price, amount uint64, proposerUsername, proposerPubKeyHash string) {
 	app.appCommandCh <- AppCommand{
-		Type:    "propose",
-		OrderID: orderID,
-		Price:   price,
-		Amount:  amount,
+		Type:               "propose",
+		OrderID:            orderID,
+		Price:              price,
+		Amount:             amount,
+		ProposerUsername:   proposerUsername,
+		ProposerPubKeyHash: proposerPubKeyHash,
 	}
 }
 
@@ -947,8 +953,8 @@ func (app *BlackTraceApp) ListProposals(orderID OrderID) []*Proposal {
 	return proposals
 }
 
-// AcceptProposal accepts a specific proposal
-func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
+// AcceptProposal accepts a specific proposal with Alice's secret for HTLC
+func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID, secret string) error {
 	app.proposalsMux.Lock()
 	proposal, ok := app.proposals[proposalID]
 	if !ok {
@@ -962,7 +968,7 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 	proposal.SettlementStatus = &readyStatus
 	app.proposalsMux.Unlock()
 
-	log.Printf("App: Accepted proposal %s (Price: $%d, Amount: %d)", proposalID, proposal.Price, proposal.Amount)
+	log.Printf("App: Accepted proposal %s (Price: $%d, Amount: %d) with secret", proposalID, proposal.Price, proposal.Amount)
 
 	// Send ENCRYPTED acceptance to proposer only (prevents value leakage)
 	if err := app.sendEncryptedAcceptance(proposal.ProposerID, proposal); err != nil {
@@ -989,7 +995,7 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 			return nil
 		}
 
-		// Create settlement request
+		// Create settlement request with Alice's secret
 		settlementReq := SettlementRequest{
 			ProposalID:      string(proposalID),
 			OrderID:         string(proposal.OrderID),
@@ -999,6 +1005,7 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 			Price:           proposal.Price,
 			Stablecoin:      string(order.Stablecoin),
 			SettlementChain: "ztarknet", // Default for now, will be from proposal in future
+			Secret:          secret,     // Alice's secret for HTLC
 			Timestamp:       time.Now(),
 		}
 
@@ -1007,7 +1014,7 @@ func (app *BlackTraceApp) AcceptProposal(proposalID ProposalID) error {
 			log.Printf("Warning: Failed to publish settlement request: %v", err)
 			// Continue anyway - this is not critical for acceptance
 		} else {
-			log.Printf("Settlement: Request published to NATS (will be picked up by Rust service)")
+			log.Printf("Settlement: Request published to NATS with Alice's secret")
 		}
 	}
 
@@ -1041,7 +1048,8 @@ func (app *BlackTraceApp) RejectProposal(proposalID ProposalID) error {
 }
 
 // LockZEC initiates settlement by locking ZEC (Alice's action)
-func (app *BlackTraceApp) LockZEC(proposalID ProposalID, username string, zcashAddress string) (SettlementStatus, error) {
+// alicePubKeyHash and bobPubKeyHash are hex-encoded HASH160 of the users' public keys
+func (app *BlackTraceApp) LockZEC(proposalID ProposalID, username string, zcashAddress string, secret string, alicePubKeyHash string, bobPubKeyHash string) (SettlementStatus, error) {
 	app.proposalsMux.Lock()
 	proposal, ok := app.proposals[proposalID]
 	if !ok {
@@ -1060,25 +1068,29 @@ func (app *BlackTraceApp) LockZEC(proposalID ProposalID, username string, zcashA
 	proposal.SettlementStatus = &status
 	app.proposalsMux.Unlock()
 
-	log.Printf("Settlement: %s locked %d ZEC for proposal %s from address %s", username, proposal.Amount, proposalID, zcashAddress)
+	log.Printf("Settlement: %s locked %d ZEC for proposal %s from address %s with secret", username, proposal.Amount, proposalID, zcashAddress)
+	log.Printf("Settlement: Using pubkey hashes - Alice: %s, Bob: %s", alicePubKeyHash, bobPubKeyHash)
 
 	// Publish settlement status update to NATS
 	if app.settlementMgr.IsEnabled() {
 		statusUpdate := map[string]interface{}{
-			"proposal_id":       string(proposalID),
-			"order_id":          string(proposal.OrderID),
-			"settlement_status": string(status),
-			"action":            "alice_lock_zec",
-			"amount":            proposal.Amount,
-			"username":          username,
-			"zcash_address":     zcashAddress,
-			"timestamp":         time.Now(),
+			"proposal_id":        string(proposalID),
+			"order_id":           string(proposal.OrderID),
+			"settlement_status":  string(status),
+			"action":             "alice_lock_zec",
+			"amount":             proposal.Amount,
+			"username":           username,
+			"zcash_address":      zcashAddress,
+			"secret":             secret, // Alice's secret for HTLC
+			"alice_pubkey_hash":  alicePubKeyHash, // Alice's pubkey hash for HTLC claim (Bob needs to provide sig)
+			"bob_pubkey_hash":    bobPubKeyHash,   // Bob's pubkey hash for HTLC refund
+			"timestamp":          time.Now(),
 		}
 
 		if err := app.settlementMgr.PublishSettlementStatusUpdate(statusUpdate); err != nil {
 			log.Printf("Warning: Failed to publish settlement status update: %v", err)
 		} else {
-			log.Printf("Settlement: Status update published to NATS (alice_locked) with user's Zcash address")
+			log.Printf("Settlement: Status update published to NATS (alice_locked) with pubkey hashes")
 		}
 	}
 

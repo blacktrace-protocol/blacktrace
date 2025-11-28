@@ -157,6 +157,7 @@ type NegotiateProposeRequest struct {
 	OrderID   OrderID `json:"order_id"`
 	Price     uint64  `json:"price"`
 	Amount    uint64  `json:"amount"`
+	PubKeyHash string `json:"pubkey_hash,omitempty"` // Proposer's pubkey hash for HTLC (Bob's)
 }
 
 type ListProposalsRequest struct {
@@ -169,6 +170,7 @@ type ListProposalsResponse struct {
 
 type AcceptProposalRequest struct {
 	ProposalID ProposalID `json:"proposal_id"`
+	Secret     string     `json:"secret"` // Alice's secret for HTLC
 }
 
 type AcceptProposalResponse struct {
@@ -184,8 +186,9 @@ type RejectProposalResponse struct {
 }
 
 type LockZECRequest struct {
-	ProposalID ProposalID `json:"proposal_id"`
-	SessionID  string     `json:"session_id"`
+	ProposalID    ProposalID `json:"proposal_id"`
+	SessionID     string     `json:"session_id"`
+	Secret        string     `json:"secret"`          // Alice's secret for HTLC
 }
 
 type LockZECResponse struct {
@@ -233,6 +236,9 @@ type AuthRegisterResponse struct {
 	Username     string `json:"username"`
 	Status       string `json:"status"`
 	ZcashAddress string `json:"zcash_address"`
+	PrivateKey   string `json:"private_key"`   // WIF format private key for signing
+	PubKey       string `json:"pubkey"`        // Compressed public key (hex)
+	PubKeyHash   string `json:"pubkey_hash"`   // HASH160 of pubkey (hex) - used in HTLC scripts
 }
 
 type AuthLoginRequest struct {
@@ -319,7 +325,10 @@ func (api *APIServer) handleAuthRegister(w http.ResponseWriter, r *http.Request)
 	}
 
 	var addrResponse struct {
-		Address string `json:"address"`
+		Address    string `json:"address"`
+		PrivateKey string `json:"private_key"` // WIF format private key
+		PubKey     string `json:"pubkey"`      // Compressed public key (hex)
+		PubKeyHash string `json:"pubkey_hash"` // HASH160 of pubkey (hex)
 	}
 	if err := json.NewDecoder(createAddrResp.Body).Decode(&addrResponse); err != nil {
 		api.sendError(w, "Failed to parse address response", http.StatusInternalServerError)
@@ -333,21 +342,24 @@ func (api *APIServer) handleAuthRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Step 3: Create wallet mapping (if this fails, rollback user registration)
+	// Step 3: Create wallet mapping with keypair info (if this fails, rollback user registration)
 	walletMgr := api.app.GetWalletManager()
-	if err := walletMgr.CreateWallet(req.Username, addrResponse.Address); err != nil {
+	if err := walletMgr.CreateWallet(req.Username, addrResponse.Address, addrResponse.PrivateKey, addrResponse.PubKey, addrResponse.PubKeyHash); err != nil {
 		// Rollback: delete the user we just created
 		authMgr.DeleteUser(req.Username)
 		api.sendError(w, fmt.Sprintf("Failed to create wallet: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	log.Printf("Auth: Created Zcash wallet for %s: %s", req.Username, addrResponse.Address)
+	log.Printf("Auth: Created Zcash wallet for %s: %s (pubkey_hash: %s)", req.Username, addrResponse.Address, addrResponse.PubKeyHash)
 
 	api.sendJSON(w, AuthRegisterResponse{
-		Username: req.Username,
-		Status:   "registered",
+		Username:     req.Username,
+		Status:       "registered",
 		ZcashAddress: addrResponse.Address,
+		PrivateKey:   addrResponse.PrivateKey,
+		PubKey:       addrResponse.PubKey,
+		PubKeyHash:   addrResponse.PubKeyHash,
 	})
 }
 
@@ -473,8 +485,77 @@ func (api *APIServer) handleWalletInfo(w http.ResponseWriter, r *http.Request) {
 	walletMgr := api.app.GetWalletManager()
 	wallet, err := walletMgr.GetWallet(username)
 	if err != nil {
-		api.sendError(w, err.Error(), http.StatusNotFound)
-		return
+		// Auto-create wallet if it doesn't exist (handles edge case after data reset)
+		log.Printf("Wallet not found for %s, auto-creating...", username)
+
+		// Create Zcash address via settlement service
+		createAddrResp, createErr := http.Post("http://settlement-service:8090/api/create-address", "application/json", nil)
+		if createErr != nil {
+			api.sendError(w, fmt.Sprintf("Failed to create Zcash address: %v", createErr), http.StatusInternalServerError)
+			return
+		}
+		defer createAddrResp.Body.Close()
+
+		if createAddrResp.StatusCode != http.StatusOK {
+			api.sendError(w, "Failed to create Zcash address", http.StatusInternalServerError)
+			return
+		}
+
+		var addrResponse struct {
+			Address    string `json:"address"`
+			PrivateKey string `json:"private_key"`
+			PubKey     string `json:"pubkey"`
+			PubKeyHash string `json:"pubkey_hash"`
+		}
+		if decodeErr := json.NewDecoder(createAddrResp.Body).Decode(&addrResponse); decodeErr != nil {
+			api.sendError(w, "Failed to parse address response", http.StatusInternalServerError)
+			return
+		}
+
+		// Create wallet mapping with keypair info
+		if createWalletErr := walletMgr.CreateWallet(username, addrResponse.Address, addrResponse.PrivateKey, addrResponse.PubKey, addrResponse.PubKeyHash); createWalletErr != nil {
+			api.sendError(w, fmt.Sprintf("Failed to create wallet: %v", createWalletErr), http.StatusInternalServerError)
+			return
+		}
+
+		log.Printf("Auto-created Zcash wallet for %s: %s (pubkey_hash: %s)", username, addrResponse.Address, addrResponse.PubKeyHash)
+
+		// Now get the newly created wallet
+		wallet, err = walletMgr.GetWallet(username)
+		if err != nil {
+			api.sendError(w, err.Error(), http.StatusNotFound)
+			return
+		}
+	}
+
+	// Auto-migrate existing wallets that don't have keypair info
+	if walletMgr.NeedsKeypairMigration(username) {
+		log.Printf("Migrating wallet for %s to add keypair info...", username)
+
+		// Fetch keypair info from settlement service for the existing address
+		keypairResp, keypairErr := http.Get(fmt.Sprintf("http://settlement-service:8090/api/address-keypair?address=%s", wallet.ZcashAddress))
+		if keypairErr != nil {
+			log.Printf("Warning: Failed to fetch keypair for migration: %v", keypairErr)
+		} else {
+			defer keypairResp.Body.Close()
+
+			if keypairResp.StatusCode == http.StatusOK {
+				var keypairData struct {
+					PrivateKey string `json:"private_key"`
+					PubKey     string `json:"pubkey"`
+					PubKeyHash string `json:"pubkey_hash"`
+				}
+				if decodeErr := json.NewDecoder(keypairResp.Body).Decode(&keypairData); decodeErr == nil {
+					if updateErr := walletMgr.UpdateWalletKeypair(username, keypairData.PrivateKey, keypairData.PubKey, keypairData.PubKeyHash); updateErr != nil {
+						log.Printf("Warning: Failed to update wallet keypair: %v", updateErr)
+					} else {
+						log.Printf("Migrated wallet for %s with pubkey_hash: %s", username, keypairData.PubKeyHash)
+						// Refresh wallet data
+						wallet, _ = walletMgr.GetWallet(username)
+					}
+				}
+			}
+		}
 	}
 
 	// Get current balance from settlement service
@@ -772,10 +853,29 @@ func (api *APIServer) handleNegotiatePropose(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Propose price (will be updated to accept identity)
-	api.app.ProposePrice(req.OrderID, req.Price, req.Amount)
+	// Get proposer's (Bob's) wallet info for pubkey hash
+	walletMgr := api.app.GetWalletManager()
+	wallet, err := walletMgr.GetWallet(identity.Username)
+	if err != nil {
+		api.sendError(w, "Failed to get wallet for proposer: "+err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	log.Printf("Proposal for order %s created by user: %s", req.OrderID, identity.Username)
+	// Use pubkey hash from wallet (or from request if provided)
+	pubKeyHash := req.PubKeyHash
+	if pubKeyHash == "" {
+		pubKeyHash = wallet.PubKeyHash
+	}
+
+	if pubKeyHash == "" {
+		api.sendError(w, "Proposer pubkey hash not available. Please re-register to get keypair info.", http.StatusBadRequest)
+		return
+	}
+
+	// Propose price with proposer's info
+	api.app.ProposePrice(req.OrderID, req.Price, req.Amount, identity.Username, pubKeyHash)
+
+	log.Printf("Proposal for order %s created by user: %s (pubkey_hash: %s)", req.OrderID, identity.Username, pubKeyHash)
 
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(`{"status":"proposal sent"}`))
@@ -811,8 +911,14 @@ func (api *APIServer) handleAcceptProposal(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	// Accept the proposal
-	if err := api.app.AcceptProposal(req.ProposalID); err != nil {
+	// Validate secret is provided
+	if req.Secret == "" || len(req.Secret) < 8 {
+		api.sendError(w, "Secret is required (minimum 8 characters)", http.StatusBadRequest)
+		return
+	}
+
+	// Accept the proposal with the secret
+	if err := api.app.AcceptProposal(req.ProposalID, req.Secret); err != nil {
 		api.sendError(w, err.Error(), http.StatusNotFound)
 		return
 	}
@@ -866,7 +972,7 @@ func (api *APIServer) handleLockZEC(w http.ResponseWriter, r *http.Request) {
 	log.Printf("handleLockZEC: Session found for user=%s", session.Username)
 	username := session.Username
 
-	// Get user's Zcash wallet address
+	// Get user's (Alice's) Zcash wallet including pubkey hash
 	walletMgr := api.app.GetWalletManager()
 	wallet, err := walletMgr.GetWallet(username)
 	if err != nil {
@@ -874,8 +980,33 @@ func (api *APIServer) handleLockZEC(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lock ZEC for the proposal (Alice's action)
-	settlementStatus, err := api.app.LockZEC(req.ProposalID, username, wallet.ZcashAddress)
+	// Alice's pubkey hash comes from her wallet (stored at registration)
+	alicePubKeyHash := wallet.PubKeyHash
+	if alicePubKeyHash == "" {
+		api.sendError(w, "Alice's pubkey hash not found in wallet. Please re-register to get keypair info.", http.StatusBadRequest)
+		return
+	}
+	log.Printf("handleLockZEC: Alice's pubkey hash: %s", alicePubKeyHash)
+
+	// Get Bob's pubkey hash from the proposal (stored when Bob made the proposal)
+	api.app.proposalsMux.RLock()
+	proposal, exists := api.app.proposals[req.ProposalID]
+	api.app.proposalsMux.RUnlock()
+
+	if !exists {
+		api.sendError(w, "Proposal not found", http.StatusNotFound)
+		return
+	}
+
+	bobPubKeyHash := proposal.ProposerPubKeyHash
+	if bobPubKeyHash == "" {
+		api.sendError(w, "Bob's pubkey hash not found in proposal. Bob needs to re-submit proposal with updated node.", http.StatusBadRequest)
+		return
+	}
+	log.Printf("handleLockZEC: Bob's pubkey hash (from proposal): %s", bobPubKeyHash)
+
+	// Lock ZEC for the proposal (Alice's action) with real pubkey hashes
+	settlementStatus, err := api.app.LockZEC(req.ProposalID, username, wallet.ZcashAddress, req.Secret, alicePubKeyHash, bobPubKeyHash)
 	if err != nil {
 		api.sendError(w, err.Error(), http.StatusBadRequest)
 		return

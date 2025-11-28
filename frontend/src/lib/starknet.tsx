@@ -1,9 +1,8 @@
 import React, { createContext, useContext, useState, type ReactNode } from 'react';
-import { Account, RpcProvider, Contract, cairo, CallData, hash } from 'starknet';
-import HTLC_ABI from './htlc-abi.json';
+import { Account, RpcProvider, cairo, CallData, hash } from 'starknet';
 
-// HTLC Contract Configuration
-const HTLC_CONTRACT_ADDRESS = '0x063a3f321cd01e61968f85d43f523ebfef04a03c50f2c1876508be44dccfea05';
+// HTLC Contract Configuration (multi-HTLC version)
+const HTLC_CONTRACT_ADDRESS = '0x03ec27bbe255f7c4031a0052e1e2cb6aac113a5ddb9a77231ded08573f99e290';
 const DEVNET_RPC_URL = 'http://127.0.0.1:5050/rpc';
 
 // Devnet pre-deployed accounts (for demo purposes)
@@ -35,11 +34,11 @@ interface StarknetContextType {
   balance: string | null;
   connectWallet: (role: 'bob' | 'alice') => Promise<void>;
   disconnectWallet: () => void;
-  getHTLCDetails: () => Promise<HTLCDetails | null>;
+  getHTLCDetails: (hashLock: string) => Promise<HTLCDetails | null>;
   getBalance: (address: string) => Promise<string>;
   lockFunds: (secret: string, receiver: string, amount: string, timeoutMinutes: number) => Promise<string>;
   lockFundsWithHash: (hashLock: string, receiver: string, amount: string, timeoutMinutes: number) => Promise<string>;
-  claimFunds: (secret: string) => Promise<string>;
+  claimFunds: (hashLock: string, secret: string, amountSTRK?: number) => Promise<string>;
   provider: RpcProvider;
 }
 
@@ -117,45 +116,34 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     setBalance(null);
   };
 
-  const getHTLCDetails = async (): Promise<HTLCDetails | null> => {
+  const getHTLCDetails = async (hashLock: string): Promise<HTLCDetails | null> => {
     try {
-      const contract = new Contract(
-        HTLC_ABI,
-        HTLC_CONTRACT_ADDRESS,
-        provider
-      );
-      const result = await contract.get_htlc_details();
+      // Convert hash_lock to proper felt format
+      const hashLockHex = hashLock.startsWith('0x') ? hashLock : `0x${hashLock}`;
+      const hashLockFelt = BigInt(hashLockHex);
 
-      // Handle different response structures from starknet.js
-      let htlcData = result;
+      // Call contract with hash_lock parameter using raw calldata
+      const result = await provider.callContract({
+        contractAddress: HTLC_CONTRACT_ADDRESS,
+        entrypoint: 'get_htlc_details',
+        calldata: [hashLockFelt.toString()],
+      });
 
-      // If result has HTLCDetails property, unwrap it
-      if (result && typeof result === 'object' && 'HTLCDetails' in result) {
-        htlcData = result.HTLCDetails;
-      }
-
-      // If htlcData is still an object with the expected fields, parse it
-      if (htlcData && typeof htlcData === 'object' && 'hash_lock' in htlcData) {
-        const amountValue = htlcData.amount;
-        let amountBigInt = 0n;
-
-        // Parse amount - could be u256 struct {low, high} or direct bigint
-        if (amountValue && typeof amountValue === 'object' && 'low' in amountValue) {
-          const low = BigInt(amountValue.low?.toString() || '0');
-          const high = BigInt(amountValue.high?.toString() || '0');
-          amountBigInt = low + (high << 128n);
-        } else if (amountValue) {
-          amountBigInt = BigInt(amountValue.toString());
-        }
+      // Parse the response - returned as array of felts
+      // Order: hash_lock, sender, receiver, amount.low, amount.high, timeout, claimed, refunded
+      if (result && result.length >= 8) {
+        const amountLow = BigInt(result[3] || '0');
+        const amountHigh = BigInt(result[4] || '0');
+        const amountBigInt = amountLow + (amountHigh << 128n);
 
         return {
-          hash_lock: htlcData.hash_lock?.toString() || '0x0',
-          sender: htlcData.sender?.toString() || '0x0',
-          receiver: htlcData.receiver?.toString() || '0x0',
+          hash_lock: result[0]?.toString() || '0x0',
+          sender: result[1]?.toString() || '0x0',
+          receiver: result[2]?.toString() || '0x0',
           amount: amountBigInt,
-          timeout: Number(htlcData.timeout || 0),
-          claimed: Boolean(htlcData.claimed),
-          refunded: Boolean(htlcData.refunded),
+          timeout: Number(result[5] || 0),
+          claimed: result[6] === '0x1' || result[6] === '1',
+          refunded: result[7] === '0x1' || result[7] === '1',
         };
       }
 
@@ -333,25 +321,36 @@ export const MakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     }
   };
 
-  const claimFunds = async (secret: string): Promise<string> => {
+  const claimFunds = async (hashLock: string, secret: string, amountSTRK?: number): Promise<string> => {
     if (!account) throw new Error('Wallet not connected');
 
     try {
       console.log('🔓 SIMULATED CLAIM: Transferring STRK to Alice (bypassing HTLC due to hash mismatch)');
+      console.log('  Hash lock:', hashLock);
       console.log('  Secret provided:', secret);
+      console.log('  Amount to claim:', amountSTRK, 'STRK');
       console.log('  In production, this would call the HTLC contract claim() function');
 
       // DEMO SIMULATION: Since the HTLC contract uses Pedersen hash but Zcash uses RIPEMD160(SHA256),
       // we simulate the claim by transferring STRK directly from Bob to Alice.
       // This demonstrates the UX flow while we upgrade to Cairo 2.7+ for SHA256 support.
 
-      // Get the HTLC details to find the locked amount
-      const htlcDetails = await getHTLCDetails();
-      let claimAmount = BigInt(500) * BigInt(10 ** 18); // Default to 500 STRK
+      // Use the passed amount, or try to get from HTLC contract, or fail with error
+      let claimAmount: bigint;
 
-      if (htlcDetails && htlcDetails.amount > 0n) {
-        claimAmount = htlcDetails.amount;
-        console.log('  HTLC locked amount:', (Number(claimAmount) / 1e18).toFixed(2), 'STRK');
+      if (amountSTRK && amountSTRK > 0) {
+        // Use the passed amount (from proposal)
+        claimAmount = BigInt(Math.floor(amountSTRK * 1e18));
+        console.log('  Using passed amount:', amountSTRK, 'STRK');
+      } else {
+        // Try to get from HTLC contract (won't work in simulated mode)
+        const htlcDetails = await getHTLCDetails(hashLock);
+        if (htlcDetails && htlcDetails.amount > 0n) {
+          claimAmount = htlcDetails.amount;
+          console.log('  HTLC locked amount:', (Number(claimAmount) / 1e18).toFixed(2), 'STRK');
+        } else {
+          throw new Error('Cannot determine claim amount. Please provide the STRK amount.');
+        }
       }
 
       // Use Bob's account to transfer STRK to Alice (simulating HTLC release)
@@ -480,40 +479,34 @@ export const TakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     setBalance(null);
   };
 
-  const getHTLCDetails = async (): Promise<HTLCDetails | null> => {
+  const getHTLCDetails = async (hashLock: string): Promise<HTLCDetails | null> => {
     try {
-      const contract = new Contract(
-        HTLC_ABI,
-        HTLC_CONTRACT_ADDRESS,
-        provider
-      );
-      const result = await contract.get_htlc_details();
+      // Convert hash_lock to proper felt format
+      const hashLockHex = hashLock.startsWith('0x') ? hashLock : `0x${hashLock}`;
+      const hashLockFelt = BigInt(hashLockHex);
 
-      let htlcData = result;
-      if (result && typeof result === 'object' && 'HTLCDetails' in result) {
-        htlcData = result.HTLCDetails;
-      }
+      // Call contract with hash_lock parameter using raw calldata
+      const result = await provider.callContract({
+        contractAddress: HTLC_CONTRACT_ADDRESS,
+        entrypoint: 'get_htlc_details',
+        calldata: [hashLockFelt.toString()],
+      });
 
-      if (htlcData && typeof htlcData === 'object' && 'hash_lock' in htlcData) {
-        const amountValue = htlcData.amount;
-        let amountBigInt = 0n;
-
-        if (amountValue && typeof amountValue === 'object' && 'low' in amountValue) {
-          const low = BigInt(amountValue.low?.toString() || '0');
-          const high = BigInt(amountValue.high?.toString() || '0');
-          amountBigInt = low + (high << 128n);
-        } else if (amountValue) {
-          amountBigInt = BigInt(amountValue.toString());
-        }
+      // Parse the response - returned as array of felts
+      // Order: hash_lock, sender, receiver, amount.low, amount.high, timeout, claimed, refunded
+      if (result && result.length >= 8) {
+        const amountLow = BigInt(result[3] || '0');
+        const amountHigh = BigInt(result[4] || '0');
+        const amountBigInt = amountLow + (amountHigh << 128n);
 
         return {
-          hash_lock: htlcData.hash_lock?.toString() || '0x0',
-          sender: htlcData.sender?.toString() || '0x0',
-          receiver: htlcData.receiver?.toString() || '0x0',
+          hash_lock: result[0]?.toString() || '0x0',
+          sender: result[1]?.toString() || '0x0',
+          receiver: result[2]?.toString() || '0x0',
           amount: amountBigInt,
-          timeout: Number(htlcData.timeout || 0),
-          claimed: Boolean(htlcData.claimed),
-          refunded: Boolean(htlcData.refunded),
+          timeout: Number(result[5] || 0),
+          claimed: result[6] === '0x1' || result[6] === '1',
+          refunded: result[7] === '0x1' || result[7] === '1',
         };
       }
 
@@ -681,17 +674,22 @@ export const TakerStarknetProvider: React.FC<{ children: ReactNode }> = ({ child
     }
   };
 
-  const claimFunds = async (secret: string): Promise<string> => {
+  const claimFunds = async (hashLock: string, secret: string): Promise<string> => {
     if (!account) throw new Error('Wallet not connected');
 
     try {
+      // Convert hash_lock and secret to felt format
+      const hashLockHex = hashLock.startsWith('0x') ? hashLock : `0x${hashLock}`;
+      const hashLockFelt = BigInt(hashLockHex);
       const secretFelt = cairo.felt(secret);
 
-      console.log('Claiming funds with secret:', secretFelt);
+      console.log('Claiming funds with:', { hashLock: hashLockFelt.toString(), secret: secretFelt });
 
-      const calldata = CallData.compile({
-        secret: secretFelt,
-      });
+      // Pass raw calldata - hash_lock and secret as felts
+      const calldata = [
+        hashLockFelt.toString(),  // hash_lock
+        secretFelt,               // secret
+      ];
 
       const tx = await account.execute({
         contractAddress: HTLC_CONTRACT_ADDRESS,

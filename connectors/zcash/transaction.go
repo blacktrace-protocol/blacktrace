@@ -254,7 +254,8 @@ func (c *Client) ClaimHTLC(params *HTLCClaimParams) (string, error) {
 	}
 
 	// Build transaction output
-	fee := 0.0001
+	// Use a higher fee to meet minimum relay fee requirements (0.01 ZEC = 1,000,000 zatoshis)
+	fee := 0.01
 	outputAmount := math.Round((params.HTLCAmount-fee)*1e8) / 1e8
 	if outputAmount <= 0 {
 		return "", fmt.Errorf("HTLC amount %.8f too small to cover fee", params.HTLCAmount)

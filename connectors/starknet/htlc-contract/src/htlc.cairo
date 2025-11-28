@@ -23,9 +23,10 @@ trait IHTLC<TContractState> {
         timeout: u64,
         amount: u256
     );
-    fn claim(ref self: TContractState, secret: felt252);
-    fn refund(ref self: TContractState);
-    fn get_htlc_details(self: @TContractState) -> HTLCDetails;
+    fn claim(ref self: TContractState, hash_lock: felt252, secret: felt252);
+    fn refund(ref self: TContractState, hash_lock: felt252);
+    fn get_htlc_details(self: @TContractState, hash_lock: felt252) -> HTLCDetails;
+    fn get_htlc_count(self: @TContractState) -> u64;
 }
 
 #[derive(Drop, Serde, starknet::Store)]
@@ -48,16 +49,20 @@ mod HTLC {
     // STRK token address on Starknet devnet
     const STRK_TOKEN_ADDRESS: felt252 = 0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d;
 
+    // Zero address constant for checking if HTLC exists
+    const ZERO_ADDRESS: felt252 = 0;
+
     #[storage]
     struct Storage {
-        hash_lock: felt252,
-        sender: ContractAddress,
-        receiver: ContractAddress,
-        amount: u256,
-        timeout: u64,
-        claimed: bool,
-        refunded: bool,
-        locked: bool,
+        // Map from hash_lock to HTLC details
+        htlc_senders: LegacyMap<felt252, ContractAddress>,
+        htlc_receivers: LegacyMap<felt252, ContractAddress>,
+        htlc_amounts: LegacyMap<felt252, u256>,
+        htlc_timeouts: LegacyMap<felt252, u64>,
+        htlc_claimed: LegacyMap<felt252, bool>,
+        htlc_refunded: LegacyMap<felt252, bool>,
+        // Counter for total HTLCs created
+        htlc_count: u64,
     }
 
     #[event]
@@ -71,16 +76,19 @@ mod HTLC {
     #[derive(Drop, starknet::Event)]
     struct Locked {
         #[key]
+        hash_lock: felt252,
+        #[key]
         sender: ContractAddress,
         #[key]
         receiver: ContractAddress,
         amount: u256,
-        hash_lock: felt252,
         timeout: u64,
     }
 
     #[derive(Drop, starknet::Event)]
     struct Claimed {
+        #[key]
+        hash_lock: felt252,
         #[key]
         receiver: ContractAddress,
         secret: felt252,
@@ -89,6 +97,8 @@ mod HTLC {
 
     #[derive(Drop, starknet::Event)]
     struct Refunded {
+        #[key]
+        hash_lock: felt252,
         #[key]
         sender: ContractAddress,
         amount: u256,
@@ -103,8 +113,9 @@ mod HTLC {
             timeout: u64,
             amount: u256
         ) {
-            // Ensure HTLC hasn't been locked yet
-            assert(!self.locked.read(), 'HTLC already locked');
+            // Ensure this hash_lock hasn't been used before
+            let existing_sender: ContractAddress = self.htlc_senders.read(hash_lock);
+            assert(existing_sender.into() == ZERO_ADDRESS, 'HTLC already exists');
 
             // Validate parameters
             assert(amount > 0, 'Amount must be positive');
@@ -121,48 +132,54 @@ mod HTLC {
             let transfer_success = strk_token.transfer_from(caller, contract_address, amount);
             assert(transfer_success, 'STRK transfer failed');
 
-            // Store HTLC parameters
-            self.hash_lock.write(hash_lock);
-            self.sender.write(caller);
-            self.receiver.write(receiver);
-            self.amount.write(amount);
-            self.timeout.write(timeout);
-            self.locked.write(true);
+            // Store HTLC parameters in maps
+            self.htlc_senders.write(hash_lock, caller);
+            self.htlc_receivers.write(hash_lock, receiver);
+            self.htlc_amounts.write(hash_lock, amount);
+            self.htlc_timeouts.write(hash_lock, timeout);
+            self.htlc_claimed.write(hash_lock, false);
+            self.htlc_refunded.write(hash_lock, false);
+
+            // Increment counter
+            let current_count = self.htlc_count.read();
+            self.htlc_count.write(current_count + 1);
 
             // Emit event
             self.emit(Locked {
+                hash_lock,
                 sender: caller,
                 receiver,
                 amount,
-                hash_lock,
                 timeout,
             });
         }
 
-        fn claim(ref self: ContractState, secret: felt252) {
-            // Verify HTLC is locked
-            assert(self.locked.read(), 'HTLC not locked');
+        fn claim(ref self: ContractState, hash_lock: felt252, secret: felt252) {
+            // Verify HTLC exists
+            let sender: ContractAddress = self.htlc_senders.read(hash_lock);
+            assert(sender.into() != ZERO_ADDRESS, 'HTLC not found');
 
             // Verify not already claimed or refunded
-            assert(!self.claimed.read(), 'Already claimed');
-            assert(!self.refunded.read(), 'Already refunded');
+            assert(!self.htlc_claimed.read(hash_lock), 'Already claimed');
+            assert(!self.htlc_refunded.read(hash_lock), 'Already refunded');
 
             // Verify caller is the receiver
             let caller = get_caller_address();
-            assert(caller == self.receiver.read(), 'Only receiver can claim');
+            let receiver = self.htlc_receivers.read(hash_lock);
+            assert(caller == receiver, 'Only receiver can claim');
 
             // Verify secret matches hash_lock
             let computed_hash = pedersen(secret, 0);
-            assert(computed_hash == self.hash_lock.read(), 'Invalid secret');
+            assert(computed_hash == hash_lock, 'Invalid secret');
 
             // Verify timeout hasn't passed
-            assert(get_block_timestamp() <= self.timeout.read(), 'Timeout passed');
+            let timeout = self.htlc_timeouts.read(hash_lock);
+            assert(get_block_timestamp() <= timeout, 'Timeout passed');
 
             // Mark as claimed
-            self.claimed.write(true);
-            self.locked.write(false);  // Reset locked flag to allow new HTLCs
+            self.htlc_claimed.write(hash_lock, true);
 
-            let amount = self.amount.read();
+            let amount = self.htlc_amounts.read(hash_lock);
 
             // Transfer STRK tokens to receiver
             let strk_token = IERC20Dispatcher {
@@ -174,32 +191,34 @@ mod HTLC {
 
             // Emit event
             self.emit(Claimed {
+                hash_lock,
                 receiver: caller,
                 secret,
                 amount,
             });
         }
 
-        fn refund(ref self: ContractState) {
-            // Verify HTLC is locked
-            assert(self.locked.read(), 'HTLC not locked');
+        fn refund(ref self: ContractState, hash_lock: felt252) {
+            // Verify HTLC exists
+            let sender: ContractAddress = self.htlc_senders.read(hash_lock);
+            assert(sender.into() != ZERO_ADDRESS, 'HTLC not found');
 
             // Verify not already claimed or refunded
-            assert(!self.claimed.read(), 'Already claimed');
-            assert(!self.refunded.read(), 'Already refunded');
+            assert(!self.htlc_claimed.read(hash_lock), 'Already claimed');
+            assert(!self.htlc_refunded.read(hash_lock), 'Already refunded');
 
             // Verify caller is the sender
             let caller = get_caller_address();
-            assert(caller == self.sender.read(), 'Only sender can refund');
+            assert(caller == sender, 'Only sender can refund');
 
             // Verify timeout has passed
-            assert(get_block_timestamp() > self.timeout.read(), 'Timeout not reached');
+            let timeout = self.htlc_timeouts.read(hash_lock);
+            assert(get_block_timestamp() > timeout, 'Timeout not reached');
 
             // Mark as refunded
-            self.refunded.write(true);
-            self.locked.write(false);  // Reset locked flag to allow new HTLCs
+            self.htlc_refunded.write(hash_lock, true);
 
-            let amount = self.amount.read();
+            let amount = self.htlc_amounts.read(hash_lock);
 
             // Transfer STRK tokens back to sender
             let strk_token = IERC20Dispatcher {
@@ -211,21 +230,26 @@ mod HTLC {
 
             // Emit event
             self.emit(Refunded {
+                hash_lock,
                 sender: caller,
                 amount,
             });
         }
 
-        fn get_htlc_details(self: @ContractState) -> HTLCDetails {
+        fn get_htlc_details(self: @ContractState, hash_lock: felt252) -> HTLCDetails {
             HTLCDetails {
-                hash_lock: self.hash_lock.read(),
-                sender: self.sender.read(),
-                receiver: self.receiver.read(),
-                amount: self.amount.read(),
-                timeout: self.timeout.read(),
-                claimed: self.claimed.read(),
-                refunded: self.refunded.read(),
+                hash_lock,
+                sender: self.htlc_senders.read(hash_lock),
+                receiver: self.htlc_receivers.read(hash_lock),
+                amount: self.htlc_amounts.read(hash_lock),
+                timeout: self.htlc_timeouts.read(hash_lock),
+                claimed: self.htlc_claimed.read(hash_lock),
+                refunded: self.htlc_refunded.read(hash_lock),
             }
+        }
+
+        fn get_htlc_count(self: @ContractState) -> u64 {
+            self.htlc_count.read()
         }
     }
 }

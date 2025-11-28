@@ -12,8 +12,11 @@ import (
 type WalletInfo struct {
 	Username      string  `json:"username"`
 	ZcashAddress  string  `json:"zcash_address"`
-	TotalFunded   float64 `json:"total_funded"` // Track total ZEC received
-	FundingCount  int     `json:"funding_count"` // Number of times funded
+	PrivateKey    string  `json:"private_key"`    // WIF format private key for signing
+	PubKey        string  `json:"pubkey"`         // Compressed public key (hex)
+	PubKeyHash    string  `json:"pubkey_hash"`    // HASH160 of pubkey (hex) - used in HTLC scripts
+	TotalFunded   float64 `json:"total_funded"`   // Track total ZEC received
+	FundingCount  int     `json:"funding_count"`  // Number of times funded
 }
 
 // WalletManager manages user wallets
@@ -39,7 +42,7 @@ func NewWalletManager(dataDir string) (*WalletManager, error) {
 }
 
 // CreateWallet creates a new wallet for a user by requesting an address from settlement service
-func (wm *WalletManager) CreateWallet(username, zcashAddress string) error {
+func (wm *WalletManager) CreateWallet(username, zcashAddress, privateKey, pubKey, pubKeyHash string) error {
 	wm.mu.Lock()
 	defer wm.mu.Unlock()
 
@@ -52,6 +55,9 @@ func (wm *WalletManager) CreateWallet(username, zcashAddress string) error {
 	wallet := &WalletInfo{
 		Username:     username,
 		ZcashAddress: zcashAddress,
+		PrivateKey:   privateKey,
+		PubKey:       pubKey,
+		PubKeyHash:   pubKeyHash,
 		TotalFunded:  0,
 		FundingCount: 0,
 	}
@@ -77,6 +83,41 @@ func (wm *WalletManager) GetWallet(username string) (*WalletInfo, error) {
 	}
 
 	return wallet, nil
+}
+
+// UpdateWalletKeypair updates the keypair info for an existing wallet (migration for old wallets)
+func (wm *WalletManager) UpdateWalletKeypair(username, privateKey, pubKey, pubKeyHash string) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+
+	wallet, exists := wm.wallets[username]
+	if !exists {
+		return fmt.Errorf("wallet not found for user %s", username)
+	}
+
+	wallet.PrivateKey = privateKey
+	wallet.PubKey = pubKey
+	wallet.PubKeyHash = pubKeyHash
+
+	// Save to disk
+	if err := wm.save(); err != nil {
+		return fmt.Errorf("failed to save wallet: %w", err)
+	}
+
+	return nil
+}
+
+// NeedsKeypairMigration checks if a wallet needs keypair info added
+func (wm *WalletManager) NeedsKeypairMigration(username string) bool {
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+
+	wallet, exists := wm.wallets[username]
+	if !exists {
+		return false
+	}
+
+	return wallet.PubKeyHash == ""
 }
 
 // RecordFunding records that a user received ZEC funding

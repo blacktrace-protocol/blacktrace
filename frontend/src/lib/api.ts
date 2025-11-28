@@ -59,12 +59,38 @@ export class BlackTraceAPI {
   }
 
   async register(username: string, password: string): Promise<User> {
-    await this.client.post('/auth/register', {
+    const registerResponse = await this.client.post<{
+      username: string;
+      status: string;
+      zcash_address: string;
+      private_key: string;
+      pubkey: string;
+      pubkey_hash: string;
+    }>('/auth/register', {
       username,
       password,
     });
-    // Backend returns { username, status }, we need to login after registering
-    return this.login(username, password);
+
+    // Store the keypair info in localStorage for later use (signing transactions)
+    const keypairKey = `blacktrace_keypair_${username}`;
+    localStorage.setItem(keypairKey, JSON.stringify({
+      private_key: registerResponse.data.private_key,
+      pubkey: registerResponse.data.pubkey,
+      pubkey_hash: registerResponse.data.pubkey_hash,
+      zcash_address: registerResponse.data.zcash_address,
+    }));
+    console.log(`Stored keypair for ${username} in localStorage`);
+
+    // Login after registering
+    const user = await this.login(username, password);
+
+    // Attach keypair info to the user object
+    user.zcash_address = registerResponse.data.zcash_address;
+    user.private_key = registerResponse.data.private_key;
+    user.pubkey = registerResponse.data.pubkey;
+    user.pubkey_hash = registerResponse.data.pubkey_hash;
+
+    return user;
   }
 
   async login(username: string, password: string): Promise<User> {
@@ -83,6 +109,22 @@ export class BlackTraceAPI {
       token: response.data.session_id,
       peerID: '', // Will be fetched from status endpoint
     };
+
+    // Try to retrieve stored keypair from localStorage
+    const keypairKey = `blacktrace_keypair_${username}`;
+    const storedKeypair = localStorage.getItem(keypairKey);
+    if (storedKeypair) {
+      try {
+        const keypair = JSON.parse(storedKeypair);
+        user.private_key = keypair.private_key;
+        user.pubkey = keypair.pubkey;
+        user.pubkey_hash = keypair.pubkey_hash;
+        user.zcash_address = keypair.zcash_address;
+        console.log(`Retrieved keypair for ${username} from localStorage`);
+      } catch (e) {
+        console.warn('Failed to parse stored keypair:', e);
+      }
+    }
 
     this.setToken(user.token);
     return user;
@@ -135,9 +177,10 @@ export class BlackTraceAPI {
     return { proposals: mappedProposals };
   }
 
-  async acceptProposal(proposalId: string): Promise<{ status: string }> {
+  async acceptProposal(proposalId: string, secret: string): Promise<{ status: string }> {
     const response = await this.client.post<{ status: string }>('/negotiate/accept', {
       proposal_id: proposalId,
+      secret: secret,
     });
     return response.data;
   }
@@ -201,6 +244,26 @@ export class BlackTraceAPI {
     const response = await this.client.get<{ users: Array<{ username: string; created_at: string }> }>('/users');
     return response.data;
   }
+}
+
+// Helper function to get stored keypair for a user
+export function getStoredKeypair(username: string): {
+  private_key: string;
+  pubkey: string;
+  pubkey_hash: string;
+  zcash_address: string;
+} | null {
+  const keypairKey = `blacktrace_keypair_${username}`;
+  const storedKeypair = localStorage.getItem(keypairKey);
+  if (storedKeypair) {
+    try {
+      return JSON.parse(storedKeypair);
+    } catch (e) {
+      console.warn('Failed to parse stored keypair:', e);
+      return null;
+    }
+  }
+  return null;
 }
 
 // Create API instances for Alice and Bob

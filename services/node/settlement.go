@@ -19,15 +19,16 @@ type SettlementManager struct {
 
 // SettlementRequest represents a request to initiate HTLC settlement
 type SettlementRequest struct {
-	ProposalID     string    `json:"proposal_id"`
-	OrderID        string    `json:"order_id"`
-	MakerID        string    `json:"maker_id"`
-	TakerID        string    `json:"taker_id"`
-	Amount         uint64    `json:"amount"`
-	Price          uint64    `json:"price"`
-	Stablecoin     string    `json:"stablecoin"`
-	SettlementChain string   `json:"settlement_chain"` // "ztarknet", "solana", etc.
-	Timestamp      time.Time `json:"timestamp"`
+	ProposalID      string    `json:"proposal_id"`
+	OrderID         string    `json:"order_id"`
+	MakerID         string    `json:"maker_id"`
+	TakerID         string    `json:"taker_id"`
+	Amount          uint64    `json:"amount"`
+	Price           uint64    `json:"price"`
+	Stablecoin      string    `json:"stablecoin"`
+	SettlementChain string    `json:"settlement_chain"` // "ztarknet", "solana", etc.
+	Secret          string    `json:"secret"`           // Alice's secret for HTLC
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 // NewSettlementManager creates a new settlement manager

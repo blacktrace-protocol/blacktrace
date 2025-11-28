@@ -35,6 +35,8 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
 
   // Claim form state
   const [claimSecret, setClaimSecret] = useState('');
+  const [claimHashLock, setClaimHashLock] = useState('');
+  const [queryHashLock, setQueryHashLock] = useState('');
 
   // Funding state
   const [funding, setFunding] = useState(false);
@@ -100,8 +102,9 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
   }, [account]);
 
   const loadHTLCDetails = async () => {
+    if (!queryHashLock) return; // Need hash_lock to query
     try {
-      const details = await getHTLCDetails();
+      const details = await getHTLCDetails(queryHashLock);
       setHtlcDetails(details);
     } catch (err) {
       console.error('Failed to load HTLC details:', err);
@@ -143,6 +146,10 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
   };
 
   const handleClaim = async () => {
+    if (!claimHashLock) {
+      setError('Please enter the hash lock');
+      return;
+    }
     if (!claimSecret) {
       setError('Please enter the secret');
       return;
@@ -153,9 +160,10 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
     setLoading(true);
 
     try {
-      const hash = await claimFunds(claimSecret);
+      const hash = await claimFunds(claimHashLock, claimSecret);
       setTxHash(hash);
       setClaimSecret(''); // Clear secret for security
+      setClaimHashLock(''); // Clear hash lock
       await loadHTLCDetails();
     } catch (err: any) {
       setError(err.message || 'Failed to claim funds');
@@ -276,19 +284,27 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
       {/* HTLC Status */}
       <Card>
         <CardHeader>
-          <div className="flex justify-between items-center">
-            <CardTitle>HTLC Status</CardTitle>
+          <CardTitle>HTLC Status</CardTitle>
+          <CardDescription>Query HTLC details by hash lock</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex gap-2">
+            <Input
+              type="text"
+              value={queryHashLock}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQueryHashLock(e.target.value)}
+              placeholder="0x... (hash lock to query)"
+              className="flex-1"
+            />
             <Button
               size="sm"
-              variant="ghost"
+              variant="outline"
               onClick={loadHTLCDetails}
-              disabled={loading}
+              disabled={loading || !queryHashLock}
             >
               <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             </Button>
           </div>
-        </CardHeader>
-        <CardContent>
           {htlcDetails ? (
             <div className="space-y-2 text-sm">
               <div className="grid grid-cols-2 gap-2">
@@ -316,7 +332,7 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
               </div>
             </div>
           ) : (
-            <p className="text-muted-foreground">No HTLC active</p>
+            <p className="text-muted-foreground">Enter hash lock and click refresh to query HTLC</p>
           )}
         </CardContent>
       </Card>
@@ -413,10 +429,21 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
               Claim STRK Funds
             </CardTitle>
             <CardDescription>
-              Enter the secret to claim locked STRK
+              Enter the hash lock and secret to claim locked STRK
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <label htmlFor="claimHashLock" className="text-sm font-medium">Hash Lock</label>
+              <Input
+                id="claimHashLock"
+                type="text"
+                value={claimHashLock}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClaimHashLock(e.target.value)}
+                placeholder="0x... (HTLC hash lock)"
+              />
+            </div>
+
             <div className="space-y-2">
               <label htmlFor="claimSecret" className="text-sm font-medium">Secret</label>
               <Input
@@ -424,29 +451,17 @@ export const StarknetHTLC: React.FC<StarknetHTLCProps> = ({ panel }) => {
                 type="text"
                 value={claimSecret}
                 onChange={(e: React.ChangeEvent<HTMLInputElement>) => setClaimSecret(e.target.value)}
-                placeholder="Enter the secret from Bob"
+                placeholder="Enter the secret"
               />
             </div>
 
             <Button
               onClick={handleClaim}
-              disabled={loading || htlcDetails?.amount === 0n || htlcDetails?.claimed}
+              disabled={loading || !claimHashLock || !claimSecret}
               className="w-full"
             >
               {loading ? <Loader2 className="animate-spin" /> : 'Claim Funds'}
             </Button>
-
-            {htlcDetails?.amount === 0n && (
-              <div className="text-sm text-gray-400 bg-gray-950/20 border border-gray-900 rounded-md p-2">
-                No funds locked in HTLC
-              </div>
-            )}
-
-            {htlcDetails?.claimed && (
-              <div className="text-sm text-green-400 bg-green-950/20 border border-green-900 rounded-md p-2">
-                ✅ Funds already claimed!
-              </div>
-            )}
           </CardContent>
         </Card>
       )}

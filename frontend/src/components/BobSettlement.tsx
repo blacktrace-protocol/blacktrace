@@ -6,13 +6,14 @@ import { bobAPI } from '../lib/api';
 import { Lock, RefreshCw, CheckCircle, AlertCircle, Unlock, Clock, Zap, Coins, AlertTriangle } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 import { useTakerStarknet } from '../lib/starknet';
+import { useStore } from '../lib/store';
 import { Account, RpcProvider, CallData } from 'starknet';
 import { logWorkflowStart, logSettlement, logStateChange, logSuccess, logError } from '../lib/logger';
 
-// Devnet faucet for STRK funding (using 3rd pre-deployed account, not Alice or Bob)
+// Devnet faucet for STRK funding (using 4th pre-deployed account)
 const FAUCET_ACCOUNT = {
-  address: '0x49dfb8ce986e21d354ac93ea65e6a11f639c1934ea253e5ff14ca62eca0f38e',
-  privateKey: '0xa20a02f0ac53692d144b20cb371a60d7',
+  address: '0x4f348398f859a55a0c80b1446c5fdc37edb3a8478a32f10764659fc241027d3',
+  privateKey: '0xa641611c17d4d92bd0790074e34beeb7',
 };
 const STRK_TOKEN_ADDRESS = '0x04718f5a0fc34cc1af16a1cdee98ffb20c31f5cd61d6ab07201858f4287c938d';
 const DEVNET_RPC_URL = 'http://127.0.0.1:5050/rpc';
@@ -39,6 +40,15 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
   // Starknet wallet context for STRK balance and locking
   const { account: starknetAccount, address: starknetAddress, balance: strkBalance, connectWallet: connectStarknet, role } = useTakerStarknet();
 
+  // Get Bob's user token from store and ensure bobAPI has it
+  const bobUser = useStore((state) => state.bob.user);
+
+  // Set token on bobAPI when user is available
+  useEffect(() => {
+    if (bobUser?.token) {
+      bobAPI.setToken(bobUser.token);
+    }
+  }, [bobUser?.token]);
 
   const fetchSettlementProposals = async () => {
     try {
@@ -245,6 +255,13 @@ export function BobSettlement({ onCountChange }: BobSettlementProps = {}) {
       setError('Please enter the secret to claim ZEC');
       return;
     }
+
+    // Ensure token is set before API call
+    if (!bobUser?.token) {
+      setError('Not logged in. Please log in as Bob first.');
+      return;
+    }
+    bobAPI.setToken(bobUser.token);
 
     try {
       setClaimingProposal(proposalId);

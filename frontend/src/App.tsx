@@ -44,7 +44,7 @@ function App() {
               <div>
                 <h1 className="text-2xl font-bold tracking-tight">BlackTrace</h1>
                 <p className="text-sm text-muted-foreground">
-                  Trustless OTC for crypto-native institutions
+                  Private cross-chain settlement
                 </p>
               </div>
             </div>

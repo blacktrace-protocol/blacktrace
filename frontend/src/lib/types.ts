@@ -3,6 +3,9 @@ export interface User {
   token: string;
   peerID: string;
   zcash_address?: string;
+  private_key?: string;   // WIF format private key for signing
+  pubkey?: string;        // Compressed public key (hex)
+  pubkey_hash?: string;   // HASH160 of pubkey (hex) - used in HTLC scripts
 }
 
 export interface Order {

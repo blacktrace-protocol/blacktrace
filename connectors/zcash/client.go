@@ -129,6 +129,22 @@ func (c *Client) Generate(numBlocks int) ([]string, error) {
 	return blockHashes, nil
 }
 
+// GenerateToAddress mines blocks to a specific address (regtest only)
+// This prevents coinbase rewards from going to user addresses
+func (c *Client) GenerateToAddress(numBlocks int, address string) ([]string, error) {
+	result, err := c.call("generatetoaddress", numBlocks, address)
+	if err != nil {
+		return nil, err
+	}
+
+	var blockHashes []string
+	if err := json.Unmarshal(result, &blockHashes); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal block hashes: %w", err)
+	}
+
+	return blockHashes, nil
+}
+
 // GetNewAddress creates a new Zcash address
 func (c *Client) GetNewAddress() (string, error) {
 	result, err := c.call("getnewaddress")
@@ -142,6 +158,36 @@ func (c *Client) GetNewAddress() (string, error) {
 	}
 
 	return address, nil
+}
+
+// DumpPrivKey returns the private key (WIF format) for a t-address
+func (c *Client) DumpPrivKey(address string) (string, error) {
+	result, err := c.call("dumpprivkey", address)
+	if err != nil {
+		return "", err
+	}
+
+	var privKey string
+	if err := json.Unmarshal(result, &privKey); err != nil {
+		return "", fmt.Errorf("failed to unmarshal private key: %w", err)
+	}
+
+	return privKey, nil
+}
+
+// ValidateAddress returns information about a t-address including pubkey hash
+func (c *Client) ValidateAddress(address string) (map[string]interface{}, error) {
+	result, err := c.call("validateaddress", address)
+	if err != nil {
+		return nil, err
+	}
+
+	var info map[string]interface{}
+	if err := json.Unmarshal(result, &info); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal address info: %w", err)
+	}
+
+	return info, nil
 }
 
 // GetBalance returns the wallet balance
@@ -310,9 +356,9 @@ func (c *Client) GetInfo() (map[string]interface{}, error) {
 	return info, nil
 }
 
-// GetAddressBalance returns the balance for a specific address
+// GetAddressBalance returns the spendable balance for a specific address
 func (c *Client) GetAddressBalance(address string) (float64, error) {
-	// For transparent addresses (starting with 't'), use getreceivedbyaddress
+	// For transparent addresses (starting with 't'), sum UTXOs
 	// For shielded addresses (starting with 'z'), use z_getbalance
 	if len(address) > 0 && address[0] == 'z' {
 		// Shielded address - use z_getbalance
@@ -328,15 +374,19 @@ func (c *Client) GetAddressBalance(address string) (float64, error) {
 
 		return balance, nil
 	} else {
-		// Transparent address - use getreceivedbyaddress
-		result, err := c.call("getreceivedbyaddress", address, 1)
+		// Transparent address - get actual spendable balance by summing UTXOs
+		// getreceivedbyaddress only shows total received, not current balance
+		utxos, err := c.ListUnspent(1, 9999999)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("failed to list UTXOs: %w", err)
 		}
 
+		// Filter UTXOs by address and sum their amounts
 		var balance float64
-		if err := json.Unmarshal(result, &balance); err != nil {
-			return 0, fmt.Errorf("failed to unmarshal balance: %w", err)
+		for _, utxo := range utxos {
+			if utxo.Address == address {
+				balance += utxo.Amount
+			}
 		}
 
 		return balance, nil

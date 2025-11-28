@@ -96,15 +96,17 @@ type EncryptedAcceptanceMessage struct {
 
 // Proposal during price negotiation
 type Proposal struct {
-	ProposalID       ProposalID        `json:"proposal_id"`
-	OrderID          OrderID           `json:"order_id"`
-	Price            uint64            `json:"price"`
-	Amount           uint64            `json:"amount"`
-	ProposerID       PeerID            `json:"proposer_id"`
-	Status           ProposalStatus    `json:"status"`
-	SettlementStatus *SettlementStatus `json:"settlement_status,omitempty"` // Only set when Status is Accepted
-	HashLock         *string           `json:"hash_lock,omitempty"`         // HTLC hash lock (set when Alice locks ZEC)
-	Timestamp        time.Time         `json:"timestamp"`
+	ProposalID         ProposalID        `json:"proposal_id"`
+	OrderID            OrderID           `json:"order_id"`
+	Price              uint64            `json:"price"`
+	Amount             uint64            `json:"amount"`
+	ProposerID         PeerID            `json:"proposer_id"`
+	ProposerUsername   string            `json:"proposer_username,omitempty"`   // Username of proposer (Bob)
+	ProposerPubKeyHash string            `json:"proposer_pubkey_hash,omitempty"` // Proposer's (Bob's) pubkey hash for HTLC
+	Status             ProposalStatus    `json:"status"`
+	SettlementStatus   *SettlementStatus `json:"settlement_status,omitempty"`   // Only set when Status is Accepted
+	HashLock           *string           `json:"hash_lock,omitempty"`           // HTLC hash lock (set when Alice locks ZEC)
+	Timestamp          time.Time         `json:"timestamp"`
 }
 
 // Message is the wire protocol envelope

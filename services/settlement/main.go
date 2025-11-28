@@ -27,6 +27,7 @@ type SettlementRequest struct {
 	Price           uint64    `json:"price"`
 	Stablecoin      string    `json:"stablecoin"`
 	SettlementChain string    `json:"settlement_chain"`
+	Secret          string    `json:"secret"` // Alice's secret for HTLC
 	Timestamp       time.Time `json:"timestamp"`
 }
 
@@ -40,6 +41,9 @@ type SettlementStatusUpdate struct {
 	AmountUSDC       uint64    `json:"amount_usdc"`
 	ZcashAddress     string    `json:"zcash_address,omitempty"`     // User's personal Zcash address
 	Username         string    `json:"username,omitempty"`          // Username for wallet lookup
+	Secret           string    `json:"secret,omitempty"`            // Alice's secret for HTLC (provided by user)
+	AlicePubKeyHash  string    `json:"alice_pubkey_hash,omitempty"` // Alice's pubkey hash (hex) for HTLC claim
+	BobPubKeyHash    string    `json:"bob_pubkey_hash,omitempty"`   // Bob's pubkey hash (hex) for HTLC refund
 	Timestamp        time.Time `json:"timestamp"`
 }
 
@@ -60,6 +64,8 @@ type SettlementState struct {
 	HTLCP2SHAddress string // The P2SH address for the HTLC
 	HTLCLockTxID    string // Transaction ID that locked funds to HTLC
 	HTLCLocktime    uint32 // Locktime for refund (24 hours from now in block height)
+	AlicePubKeyHash []byte // Alice's pubkey hash for HTLC claim (Bob provides secret + sig to claim)
+	BobPubKeyHash   []byte // Bob's pubkey hash for HTLC refund (after timeout)
 	CreatedAt       time.Time
 	UpdatedAt       time.Time
 }
@@ -117,21 +123,30 @@ func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC ui
 	locktime := uint32(blockHeight + 144)
 	state.HTLCLocktime = locktime
 
-	// For demo purposes, we'll use simple addresses
-	// In production, these would come from the users' public keys
-	// For now, we'll create placeholder pubkey hashes
-	// Note: In a real implementation, users would provide their public keys
+	// Use real pubkey hashes from the settlement state
+	// These are set from the status update containing Alice's and Bob's pubkey hashes
+	// In this HTLC:
+	// - Bob is the RECIPIENT (claims with secret + signature)
+	// - Alice is the REFUND address (can reclaim after timeout)
+	bobPubKeyHash := state.BobPubKeyHash     // Bob claims the ZEC with secret
+	alicePubKeyHash := state.AlicePubKeyHash // Alice refunds if timeout
 
-	// Create dummy pubkey hashes for Alice (recipient) and Bob (refund)
-	// In production, these would be derived from actual user public keys
-	alicePubKeyHash := zcash.Hash160([]byte("alice_pubkey_placeholder"))
-	bobPubKeyHash := zcash.Hash160([]byte("bob_pubkey_placeholder"))
+	// Validate pubkey hashes are provided
+	if len(alicePubKeyHash) != 20 || len(bobPubKeyHash) != 20 {
+		return fmt.Errorf("invalid pubkey hashes: alice=%d bytes, bob=%d bytes (expected 20 each)", len(alicePubKeyHash), len(bobPubKeyHash))
+	}
+
+	log.Printf("Using real pubkey hashes:")
+	log.Printf("  Bob (recipient/claimer): %s", hex.EncodeToString(bobPubKeyHash))
+	log.Printf("  Alice (refund/timeout):  %s", hex.EncodeToString(alicePubKeyHash))
 
 	// Build HTLC script
+	// RecipientPubKeyHash: Bob claims ZEC by providing secret + his signature
+	// RefundPubKeyHash: Alice refunds after timeout using her signature
 	htlcScript := &zcash.HTLCScript{
 		SecretHash:          secretHash,
-		RecipientPubKeyHash: alicePubKeyHash,
-		RefundPubKeyHash:    bobPubKeyHash,
+		RecipientPubKeyHash: bobPubKeyHash,   // Bob claims with secret
+		RefundPubKeyHash:    alicePubKeyHash, // Alice refunds after timeout
 		Locktime:            locktime,
 	}
 
@@ -268,11 +283,29 @@ func (s *SettlementService) handleSettlementRequest(msg *nats.Msg) {
 		return
 	}
 
-	// Generate HTLC secret and hash
-	secret, hashHex, err := generateSecretAndHash()
-	if err != nil {
-		log.Printf("Error generating secret: %v", err)
-		return
+	// Use Alice's provided secret instead of generating a random one
+	var secret []byte
+	var hashHex string
+
+	if req.Secret != "" {
+		// Use Alice's secret
+		secret = []byte(req.Secret)
+		// Generate hash (SHA256 -> RIPEMD160 for Zcash compatibility)
+		shaHash := sha256.Sum256(secret)
+		ripemdHasher := ripemd160.New()
+		ripemdHasher.Write(shaHash[:])
+		ripemdHash := ripemdHasher.Sum(nil)
+		hashHex = hex.EncodeToString(ripemdHash)
+		log.Printf("Using Alice's provided secret (hash: %s)", hashHex)
+	} else {
+		// Fallback to generating random secret (shouldn't happen)
+		var err error
+		secret, hashHex, err = generateSecretAndHash()
+		if err != nil {
+			log.Printf("Error generating secret: %v", err)
+			return
+		}
+		log.Printf("WARNING: No secret provided, using generated secret")
 	}
 
 	// Create settlement state
@@ -309,8 +342,8 @@ func (s *SettlementService) handleSettlementRequest(msg *nats.Msg) {
 	fmt.Printf("     Amount:   %.2f ZEC\n", float64(req.Amount)/100.0)
 	fmt.Printf("     Price:    $%d\n", req.Price)
 	fmt.Printf("     Total:    $%.2f\n\n", float64(state.AmountUSDC)/100.0)
-	fmt.Printf("  🔐 HTLC Generated:\n")
-	fmt.Printf("     Secret:   32 bytes (kept private)\n")
+	fmt.Printf("  🔐 HTLC Secret:\n")
+	fmt.Printf("     Source:   Alice's provided secret\n")
 	fmt.Printf("     Hash:     %s\n\n", hashHex)
 	fmt.Println("  ✅ Settlement initialized")
 	fmt.Println("  📌 Status: ready → waiting for Alice to lock ZEC")
@@ -362,7 +395,34 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 			return
 		}
 
-		err := s.createZcashHTLC(state, amountZEC, zcashAddress)
+		// Extract pubkey hashes from the update (required for HTLC security)
+		if update.AlicePubKeyHash == "" || update.BobPubKeyHash == "" {
+			log.Printf("Error: Alice and Bob pubkey hashes are required for HTLC")
+			s.mu.Unlock()
+			return
+		}
+
+		// Decode pubkey hashes from hex
+		alicePubKeyHash, err := hex.DecodeString(update.AlicePubKeyHash)
+		if err != nil {
+			log.Printf("Error decoding Alice pubkey hash: %v", err)
+			s.mu.Unlock()
+			return
+		}
+		bobPubKeyHash, err := hex.DecodeString(update.BobPubKeyHash)
+		if err != nil {
+			log.Printf("Error decoding Bob pubkey hash: %v", err)
+			s.mu.Unlock()
+			return
+		}
+
+		// Store pubkey hashes in state for HTLC creation
+		state.AlicePubKeyHash = alicePubKeyHash
+		state.BobPubKeyHash = bobPubKeyHash
+
+		log.Printf("Received pubkey hashes - Alice: %s, Bob: %s", update.AlicePubKeyHash, update.BobPubKeyHash)
+
+		err = s.createZcashHTLC(state, amountZEC, zcashAddress)
 		if err != nil {
 			log.Printf("Error creating Zcash HTLC: %v", err)
 			s.mu.Unlock()
@@ -516,7 +576,7 @@ func (s *SettlementService) Close() {
 
 // HTTP API handlers for wallet operations
 
-// handleCreateAddress creates a new Zcash address
+// handleCreateAddress creates a new Zcash address and returns keypair info
 func (s *SettlementService) handleCreateAddress(w http.ResponseWriter, r *http.Request) {
 	// Enable CORS
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -542,8 +602,42 @@ func (s *SettlementService) handleCreateAddress(w http.ResponseWriter, r *http.R
 
 	log.Printf("✓ Created new Zcash address: %s", address)
 
+	// Get the private key for this address (WIF format)
+	privKey, err := s.zcashClient.DumpPrivKey(address)
+	if err != nil {
+		log.Printf("Warning: Failed to get private key for %s: %v", address, err)
+		// Continue without private key - not critical for basic functionality
+	}
+
+	// Get address info including pubkey
+	addrInfo, err := s.zcashClient.ValidateAddress(address)
+	if err != nil {
+		log.Printf("Warning: Failed to validate address %s: %v", address, err)
+	}
+
+	// Extract pubkey from address info
+	var pubKey string
+	var pubKeyHash string
+	if addrInfo != nil {
+		if pk, ok := addrInfo["pubkey"].(string); ok {
+			pubKey = pk
+			// Compute pubkey hash (HASH160 = RIPEMD160(SHA256(pubkey)))
+			pubKeyBytes, _ := hex.DecodeString(pk)
+			if len(pubKeyBytes) > 0 {
+				pubKeyHash = hex.EncodeToString(zcash.Hash160(pubKeyBytes))
+			}
+		}
+	}
+
+	log.Printf("  Private key: %s...", privKey[:10])
+	log.Printf("  Public key: %s", pubKey)
+	log.Printf("  PubKey hash: %s", pubKeyHash)
+
 	response := map[string]interface{}{
-		"address": address,
+		"address":      address,
+		"private_key":  privKey,     // WIF format private key
+		"pubkey":       pubKey,      // Compressed public key (hex)
+		"pubkey_hash":  pubKeyHash,  // HASH160 of pubkey (hex)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -792,12 +886,79 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 	json.NewEncoder(w).Encode(response)
 }
 
+// handleAddressKeypair returns keypair info for an existing address (for wallet migration)
+func (s *SettlementService) handleAddressKeypair(w http.ResponseWriter, r *http.Request) {
+	// Enable CORS
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
+	// Get address from query parameter
+	address := r.URL.Query().Get("address")
+	if address == "" {
+		http.Error(w, "Address parameter is required", http.StatusBadRequest)
+		return
+	}
+
+	// Get the private key for this address (WIF format)
+	privKey, err := s.zcashClient.DumpPrivKey(address)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to get private key for address: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Get address info including pubkey
+	addrInfo, err := s.zcashClient.ValidateAddress(address)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to validate address: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	// Extract pubkey from address info
+	var pubKey string
+	var pubKeyHash string
+	if addrInfo != nil {
+		if pk, ok := addrInfo["pubkey"].(string); ok {
+			pubKey = pk
+			// Compute pubkey hash (HASH160 = RIPEMD160(SHA256(pubkey)))
+			pubKeyBytes, _ := hex.DecodeString(pk)
+			if len(pubKeyBytes) > 0 {
+				pubKeyHash = hex.EncodeToString(zcash.Hash160(pubKeyBytes))
+			}
+		}
+	}
+
+	if pubKey == "" || pubKeyHash == "" {
+		http.Error(w, "Could not extract pubkey info from address", http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("✓ Retrieved keypair for address %s (migration)", address)
+	log.Printf("  PubKey hash: %s", pubKeyHash)
+
+	response := map[string]interface{}{
+		"address":     address,
+		"private_key": privKey,
+		"pubkey":      pubKey,
+		"pubkey_hash": pubKeyHash,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // StartHTTPServer starts the HTTP API server
 func (s *SettlementService) StartHTTPServer(port string) {
 	http.HandleFunc("/api/create-address", s.handleCreateAddress)
 	http.HandleFunc("/api/fund-address", s.handleFundAddress)
 	http.HandleFunc("/api/address-balance", s.handleAddressBalance)
 	http.HandleFunc("/api/claim-zec", s.handleClaimZEC)
+	http.HandleFunc("/api/address-keypair", s.handleAddressKeypair)
 
 	log.Printf("✓ Starting HTTP API server on :%s", port)
 	go func() {

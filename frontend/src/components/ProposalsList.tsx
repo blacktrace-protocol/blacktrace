@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 import { aliceAPI } from '../lib/api';
-import { FileText, Check, RefreshCw } from 'lucide-react';
+import { FileText, Check, RefreshCw, Key } from 'lucide-react';
 import type { Proposal, Order } from '../lib/types';
 import { logWorkflowStart, logWorkflow, logStateChange, logSuccess, logError } from '../lib/logger';
 
@@ -15,6 +16,9 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
   const [proposalsByOrder, setProposalsByOrder] = useState<Record<string, Proposal[]>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  // Secret input for each proposal (keyed by proposal ID)
+  const [secrets, setSecrets] = useState<Record<string, string>>({});
+  const [acceptingProposal, setAcceptingProposal] = useState<string | null>(null);
 
   const fetchOrdersAndProposals = async () => {
     try {
@@ -69,17 +73,33 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
   }, []);
 
   const handleAccept = async (proposalId: string) => {
+    const secret = secrets[proposalId];
+    if (!secret || secret.length < 8) {
+      setError('Please enter a secret (minimum 8 characters). This secret will be used for the HTLC - save it!');
+      return;
+    }
+
     try {
+      setAcceptingProposal(proposalId);
+      setError('');
       logWorkflowStart('PROPOSAL', 'Accepting Proposal');
-      logWorkflow('PROPOSAL', 'Processing acceptance...', { proposalId: proposalId.substring(0, 8) + '...' });
-      await aliceAPI.acceptProposal(proposalId);
+      logWorkflow('PROPOSAL', 'Processing acceptance with secret...', { proposalId: proposalId.substring(0, 8) + '...' });
+      await aliceAPI.acceptProposal(proposalId, secret);
       logStateChange('PROPOSAL', 'pending', 'accepted', proposalId.substring(0, 8) + '...');
       logSuccess('PROPOSAL', 'Proposal accepted - Ready for settlement');
+      // Clear the secret input after successful acceptance
+      setSecrets(prev => {
+        const newSecrets = { ...prev };
+        delete newSecrets[proposalId];
+        return newSecrets;
+      });
       // Refresh proposals after accepting
       fetchOrdersAndProposals();
     } catch (err: any) {
       logError('PROPOSAL', 'Accept failed', err);
       setError(err.response?.data?.error || 'Failed to accept proposal');
+    } finally {
+      setAcceptingProposal(null);
     }
   };
 
@@ -207,35 +227,65 @@ export function ProposalsList({ onCountChange }: ProposalsListProps = {}) {
                     )}
 
                     {(!proposal.status || proposal.status?.toLowerCase() === 'pending') && (
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          className="flex-1"
-                          onClick={() => {
-                            if (!proposal.id) {
-                              setError('Proposal ID missing - cannot accept');
-                              return;
-                            }
-                            handleAccept(proposal.id);
-                          }}
-                        >
-                          <Check className="h-4 w-4 mr-1" />
-                          Accept
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="flex-1"
-                          onClick={() => {
-                            if (!proposal.id) {
-                              setError('Proposal ID missing - cannot reject');
-                              return;
-                            }
-                            handleReject(proposal.id);
-                          }}
-                        >
-                          Reject
-                        </Button>
+                      <div className="space-y-3">
+                        <div className="p-3 bg-amber-950/20 border border-amber-900 rounded">
+                          <div className="flex items-center gap-2 text-amber-400 text-sm font-medium mb-2">
+                            <Key className="h-4 w-4" />
+                            Create HTLC Secret
+                          </div>
+                          <Input
+                            type="text"
+                            placeholder="Enter a secret phrase (min 8 chars) - SAVE THIS!"
+                            value={secrets[proposal.id] || ''}
+                            onChange={(e) => setSecrets(prev => ({ ...prev, [proposal.id]: e.target.value }))}
+                            disabled={acceptingProposal === proposal.id}
+                            className="font-mono mb-2"
+                          />
+                          <div className="text-xs text-amber-400/70">
+                            This secret will be used for the HTLC. Bob will need it to claim ZEC after you claim STRK.
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            size="sm"
+                            className="flex-1"
+                            onClick={() => {
+                              if (!proposal.id) {
+                                setError('Proposal ID missing - cannot accept');
+                                return;
+                              }
+                              handleAccept(proposal.id);
+                            }}
+                            disabled={acceptingProposal === proposal.id || !secrets[proposal.id] || secrets[proposal.id].length < 8}
+                          >
+                            {acceptingProposal === proposal.id ? (
+                              <>
+                                <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                                Accepting...
+                              </>
+                            ) : (
+                              <>
+                                <Check className="h-4 w-4 mr-1" />
+                                Accept with Secret
+                              </>
+                            )}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="flex-1"
+                            onClick={() => {
+                              if (!proposal.id) {
+                                setError('Proposal ID missing - cannot reject');
+                                return;
+                              }
+                              handleReject(proposal.id);
+                            }}
+                            disabled={acceptingProposal === proposal.id}
+                          >
+                            Reject
+                          </Button>
+                        </div>
                       </div>
                     )}
 
