@@ -12,16 +12,17 @@ import (
 
 // Bitcoin Script opcodes
 const (
-	OP_IF                = 0x63
-	OP_ELSE              = 0x67
-	OP_ENDIF             = 0x68
-	OP_DUP               = 0x76
-	OP_HASH160           = 0xa9
-	OP_RIPEMD160         = 0xa6
-	OP_EQUALVERIFY       = 0x88
-	OP_CHECKSIG          = 0xac
+	OP_IF                  = 0x63
+	OP_ELSE                = 0x67
+	OP_ENDIF               = 0x68
+	OP_DUP                 = 0x76
+	OP_HASH160             = 0xa9
+	OP_SHA256              = 0xa8
+	OP_RIPEMD160           = 0xa6
+	OP_EQUALVERIFY         = 0x88
+	OP_CHECKSIG            = 0xac
 	OP_CHECKLOCKTIMEVERIFY = 0xb1
-	OP_DROP              = 0x75
+	OP_DROP                = 0x75
 )
 
 // HTLCScript represents an HTLC Bitcoin Script
@@ -39,7 +40,7 @@ type HTLCScript struct {
 //
 // Script structure:
 // OP_IF
-//     OP_RIPEMD160 <hash> OP_EQUALVERIFY OP_DUP OP_HASH160 <recipient_pubkey_hash>
+//     OP_SHA256 OP_RIPEMD160 <hash> OP_EQUALVERIFY OP_DUP OP_HASH160 <recipient_pubkey_hash>
 // OP_ELSE
 //     <locktime> OP_CHECKLOCKTIMEVERIFY OP_DROP OP_DUP OP_HASH160 <refund_pubkey_hash>
 // OP_ENDIF
@@ -61,9 +62,11 @@ func BuildHTLCScript(htlc *HTLCScript) ([]byte, error) {
 	script = append(script, OP_IF)
 
 	// Secret hash verification path
-	script = append(script, OP_RIPEMD160)            // Hash the secret
+	// Hash the secret with SHA256 then RIPEMD160 (same as Hash160)
+	script = append(script, OP_SHA256)               // First SHA256
+	script = append(script, OP_RIPEMD160)            // Then RIPEMD160
 	script = append(script, byte(len(htlc.SecretHash))) // Push length
-	script = append(script, htlc.SecretHash...)      // Push hash
+	script = append(script, htlc.SecretHash...)      // Push expected hash
 	script = append(script, OP_EQUALVERIFY)          // Verify hash matches
 
 	// Verify recipient's signature

@@ -9,7 +9,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/ecdsa"
-	"golang.org/x/crypto/ripemd160"
 )
 
 // CreateHTLCLockTransaction creates a transaction that locks funds to an HTLC P2SH address
@@ -242,8 +241,9 @@ func (c *Client) ClaimHTLC(params *HTLCClaimParams) (string, error) {
 	log.Printf("  Recipient: %s", params.RecipientAddr)
 
 	// Verify the secret hashes correctly
-	secretHash := ripemd160Hash(params.Secret)
-	log.Printf("  Secret hash (RIPEMD160): %s", EncodeHex(secretHash))
+	// HTLC uses RIPEMD160(SHA256(secret)), which is Hash160
+	secretHash := Hash160(params.Secret)
+	log.Printf("  Secret hash (Hash160 = RIPEMD160(SHA256)): %s", EncodeHex(secretHash))
 
 	// Get Bob's public key from the recipient address (key must be imported first)
 	addrInfo, err := c.ValidateAddress(params.RecipientAddr)
@@ -269,7 +269,8 @@ func (c *Client) ClaimHTLC(params *HTLCClaimParams) (string, error) {
 	}
 
 	// Build transaction output with fee
-	fee := 0.0001 // Use smaller fee for regtest
+	// HTLC claim tx is ~300 bytes, needs at least 0.0003 ZEC (100 zat/byte)
+	fee := 0.001 // 0.001 ZEC fee to ensure relay
 	outputAmount := math.Round((params.HTLCAmount-fee)*1e8) / 1e8
 	if outputAmount <= 0 {
 		return "", fmt.Errorf("HTLC amount %.8f too small to cover fee", params.HTLCAmount)
@@ -595,9 +596,3 @@ func buildRawTxWithScriptSig(prevTxID []byte, prevVout uint32, scriptSig []byte,
 	return EncodeHex(buf)
 }
 
-// ripemd160Hash computes RIPEMD160(data)
-func ripemd160Hash(data []byte) []byte {
-	hasher := ripemd160.New()
-	hasher.Write(data)
-	return hasher.Sum(nil)
-}

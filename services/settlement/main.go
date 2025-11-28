@@ -104,8 +104,10 @@ func NewSettlementService(natsURL, zcashRPCURL, zcashUser, zcashPassword string)
 }
 
 // createZcashHTLC creates a real HTLC on the Zcash blockchain
-func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC uint64, userZcashAddress string) error {
-	log.Printf("Creating Zcash HTLC for %d ZEC from user address %s...", amountZEC, userZcashAddress)
+// amountCents is in cents (100 = 1 ZEC)
+func (s *SettlementService) createZcashHTLC(state *SettlementState, amountCents uint64, userZcashAddress string) error {
+	amountZEC := float64(amountCents) / 100.0
+	log.Printf("Creating Zcash HTLC for %.2f ZEC from user address %s...", amountZEC, userZcashAddress)
 
 	// Decode secret hash from hex
 	secretHash, err := hex.DecodeString(state.HashHex)
@@ -169,8 +171,7 @@ func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZEC ui
 	log.Printf("Locktime: %d (block height)", locktime)
 
 	// Create and broadcast transaction locking ZEC to HTLC from user's personal wallet
-	amountFloat := float64(amountZEC) // Amount is already in ZEC units
-	txid, err := s.zcashClient.CreateAndBroadcastHTLCLock(userZcashAddress, p2shAddress, amountFloat)
+	txid, err := s.zcashClient.CreateAndBroadcastHTLCLock(userZcashAddress, p2shAddress, amountZEC)
 	if err != nil {
 		return fmt.Errorf("failed to create HTLC lock transaction from %s: %w", userZcashAddress, err)
 	}
@@ -384,8 +385,9 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 	// Update state based on action
 	switch update.Action {
 	case "alice_lock_zec":
-		// Create HTLC on Zcash blockchain (amount is in cents, convert to ZEC)
-		amountZEC := update.Amount / 100 // Convert from cents to ZEC
+		// Create HTLC on Zcash blockchain
+		// Amount is in cents, keep as-is and convert to float ZEC in createZcashHTLC
+		amountZEC := update.Amount // Amount in cents (100 = 1 ZEC)
 
 		// Use user's personal Zcash address (required)
 		zcashAddress := update.ZcashAddress
