@@ -1,180 +1,136 @@
 # BlackTrace Demo Script
 
-## Opening (30 seconds)
+## Opening - The Hook (20 seconds)
 
-> "Imagine you want to buy $500,000 worth of crypto. You could use a centralized exchange—but then you're trusting them with your funds, your identity, and hoping they don't get hacked or freeze your account.
+> "Bridges get hacked. You know the names—Wormhole, Ronin, Nomad. Over $2 billion lost.
 >
-> Or you could trade peer-to-peer. But how do you trust a stranger on the internet with half a million dollars?
+> Why? Because bridges hold your assets while they move. That's the risk.
 >
-> **BlackTrace solves this.** It's infrastructure for high-value crypto trades that are trustless, private, and atomic—meaning either both parties get what they agreed to, or neither does. No middleman. No counterparty risk."
-
----
-
-## The Problem (45 seconds)
-
-> "Let's break down why this matters.
->
-> **Centralized exchanges** require KYC, can freeze your funds, get hacked, or go bankrupt—ask anyone who had money on FTX.
->
-> **Traditional OTC desks** require you to trust a broker, often with large minimums and fees.
->
-> **Simple P2P trades** are risky—if I send you Bitcoin first, what stops you from disappearing with my money?
->
-> BlackTrace eliminates these problems using **Hash Time-Locked Contracts**—or HTLCs. It's the same cryptographic primitive that powers Bitcoin's Lightning Network, but we use it for cross-chain settlement."
+> **BlackTrace is cross-chain settlement without the bridge.** Your assets stay in your control, locked by a cryptographic key. You get paid or you get refunded. That's it."
 
 ---
 
-## How It Works - The Concept (1 minute)
+## How It Works - The Concept (45 seconds)
 
-> "Here's the core idea:
+> "Here's how it works:
 >
-> **Alice** wants to sell 1 ZEC (Zcash) for $120 in stablecoins.
-> **Bob** wants to buy that ZEC.
+> **Alice** wants to sell 1 ZEC. **Bob** wants to buy it with stablecoins.
 >
-> Instead of trusting each other, they use a **cryptographic lock**:
+> Instead of trusting a bridge—or each other—they use a **hash-locked escrow**:
 >
-> 1. Alice creates a **secret** (just a random number) and publishes its **hash** (a fingerprint of that secret)
-> 2. Alice locks her ZEC in a smart contract that says: *'Bob can claim this ZEC if he knows the secret'*
-> 3. Bob sees the hash, and locks his $120 USDC in another contract that says: *'Alice can claim this USDC if she reveals the secret'*
-> 4. Now here's the magic: **Alice reveals the secret to claim Bob's USDC**
-> 5. Once she does, **Bob can see the secret on-chain and use it to claim the ZEC**
+> 1. Alice locks her ZEC on Zcash with a secret key
+> 2. Bob locks his USDC on Starknet with the *same* key
+> 3. Alice claims the USDC by revealing the secret
+> 4. Bob sees the secret and claims the ZEC
 >
-> If anything goes wrong—if Bob never locks his USDC, or if Alice disappears—the contracts have **timeouts** that automatically refund each party.
->
-> **This is atomic**: either the full swap happens, or nothing happens. No one can cheat."
+> **Both get paid, or both get refunded.** No bridge. No custody. No trust."
 
 ---
 
-## Quick Terminology (20 seconds)
+## Why Not Just Use a Bridge? (30 seconds)
+
+> "Bridges require someone to hold your assets while they move across chains. That custodian is an attack vector.
+>
+> BlackTrace is different:
+> - Your assets **stay on their native chains** until you claim
+> - Locked by **cryptographic escrow**, not a custodian
+> - If anything fails, **timeouts refund automatically**
+>
+> It's the difference between handing someone your keys and using a lockbox only you control."
+
+---
+
+## Quick Terms (15 seconds)
 
 > "Quick definitions:
+> - **Maker** = creates the order (Alice, selling ZEC)
+> - **Taker** = accepts the order (Bob, buying with USDC)
+> - **HTLC** = Hash Time-Locked Contract, the cryptographic lockbox
 >
-> - **Maker** = the person who creates the trade offer (Alice, selling ZEC)
-> - **Taker** = the person who accepts the offer (Bob, buying ZEC)
-> - **HTLC** = Hash Time-Locked Contract, the cryptographic lock that makes this trustless
->
-> And about the assets—we're demoing ZEC to STRK, but the same flow works for **any token pair**. Want to buy ETH with USDC? Same process. The stablecoin side is essentially 'cash' on the blockchain."
+> And stablecoins like USDC are just 'cash' on-chain—same as trading for dollars."
 
 ---
 
-## Why Multiple Steps? (30 seconds)
+## The Demo (2 minutes)
 
-> "You might wonder—why so many steps for a simple swap?
+### Step 1: Alice Creates Order
+> "Alice posts: 'Selling 1 ZEC for $100-$150.'
 >
-> For a $50 trade, you'd just use Uniswap. But this isn't for $50 trades.
->
-> **BlackTrace is for high-value OTC trades**—think hundreds of thousands or millions of dollars moving between two different blockchain networks.
->
-> At that scale, you want:
-> - **Verification at every step** (did the funds actually lock?)
-> - **Ability to abort safely** (timeouts if something goes wrong)
-> - **Privacy** (encrypted order details, no public order book)
-> - **No counterparty risk** (cryptographic guarantees, not trust)
->
-> Each step exists because when you're moving serious money, you don't skip safety checks."
+> This goes to the P2P network. Price details are **encrypted**—no public order book to front-run."
 
----
-
-## The Demo Flow (2-3 minutes)
-
-### Setup
-> "We have two users: **Alice** (the maker, selling ZEC) and **Bob** (the taker, buying ZEC with stablecoins).
+### Step 2: Bob Proposes
+> "Bob sees the order and proposes $120.
 >
-> They don't know each other. They're connected through a peer-to-peer network—no central server."
-
-### Step 1: Alice Creates an Order
-> "Alice posts an order: 'I want to sell 1 ZEC for between $100-$150.'
->
-> This broadcasts to the P2P network. Anyone can see there's an order, but the **price details are encrypted**—only serious counterparties who request details can see them.
->
-> Why encrypt? To prevent front-running and information leakage. In traditional markets, visible order books get exploited."
-
-### Step 2: Bob Sees the Order and Proposes
-> "Bob sees Alice's order and proposes: 'I'll buy 1 ZEC at $120.'
->
-> His proposal is **encrypted specifically for Alice**—other traders can't see Bob's price and undercut him.
->
-> This is like a sealed-bid auction, but cryptographically enforced."
+> His proposal is **encrypted to Alice only**. Other traders can't see his price and undercut him."
 
 ### Step 3: Alice Accepts
-> "Alice reviews Bob's proposal and accepts. At this point, she provides a **secret**—a random value that will be used to lock the contracts.
->
-> The settlement process now begins."
+> "Alice accepts and provides a secret. Settlement begins."
 
 ### Step 4: Alice Locks ZEC
-> "Alice locks her 1 ZEC into an HTLC on the Zcash blockchain. The contract says:
-> - Bob can claim if he provides the secret
-> - Alice can refund after 24 hours if Bob disappears
+> "Alice locks 1 ZEC on Zcash. The contract says:
+> - Bob can claim with the secret
+> - Alice can refund after 24 hours
 >
-> *[Show the transaction confirming]*
+> *[Show transaction]*
 >
-> The ZEC is now locked. Alice can't take it back (unless timeout), and Bob can't access it yet (needs secret)."
+> ZEC is locked. Alice can't take it back."
 
 ### Step 5: Bob Locks USDC
-> "Bob sees Alice's ZEC is locked. He now locks $120 USDC on Starknet with the **same hash**.
+> "Bob sees Alice's lock and locks $120 USDC on Starknet.
 >
-> His contract says:
-> - Alice can claim if she reveals the secret
-> - Bob can refund after 12 hours (shorter than Alice's timeout—this is important for safety)
+> *[Show transaction]*
 >
-> *[Show the lock confirmation]*
->
-> Now **both assets are locked**. The swap is ready to complete."
+> **Both assets locked.** Swap is ready."
 
-### Step 6: Alice Claims USDC (Reveals Secret)
-> "Alice claims her $120 USDC by submitting the secret to the Starknet contract.
+### Step 6: Alice Claims USDC
+> "Alice claims USDC by revealing the secret on-chain.
 >
-> *[Show the claim transaction]*
+> *[Show claim]*
 >
-> Here's the key insight: **by claiming, Alice reveals the secret on-chain**. It's now public."
+> The secret is now public."
 
 ### Step 7: Bob Claims ZEC
-> "Bob sees Alice's claim transaction on Starknet, extracts the secret, and uses it to claim the ZEC on Zcash.
+> "Bob sees the secret, uses it to claim ZEC.
 >
-> *[Show the successful claim]*
+> *[Show claim]*
 >
-> **Done.** Alice has her $120 USDC. Bob has his 1 ZEC. No trust required."
+> **Done.** Alice has USDC. Bob has ZEC. No bridge. No trust."
 
 ---
 
-## What Just Happened (30 seconds)
+## What Makes This Different (30 seconds)
 
-> "Let's recap what made this trustless:
+> "Four things:
 >
-> 1. **Cryptographic locks** instead of trust—the secret is the key
-> 2. **Atomic execution**—both get paid or both get refunded
-> 3. **Timeout safety**—if anyone disappears, funds return automatically
-> 4. **Privacy**—encrypted orders and proposals, no public order book
-> 5. **Cross-chain**—ZEC on one network, USDC on another, no bridge required
+> 1. **No bridge risk** — Assets stay on native chains, locked by crypto not custody
+> 2. **No liquidity pools** — Direct peer-to-peer, no LPs or solvers taking spread
+> 3. **Private negotiation** — Encrypted orders and bids, no front-running
+> 4. **Negotiated pricing** — OTC-style offers and bids, not fixed AMM rates
 >
-> This is the infrastructure for the next generation of OTC trading."
+> This is for serious trades where you can't afford bridge risk or slippage."
 
 ---
 
-## Closing (20 seconds)
+## Closing (15 seconds)
 
-> "BlackTrace is building trustless settlement infrastructure for high-value crypto trades.
+> "BlackTrace: Cross-chain settlement without the bridge.
 >
-> Whether you're a trading desk moving millions, a DAO treasury diversifying holdings, or an individual making a large purchase—you shouldn't have to trust a counterparty or intermediary.
+> Lock, swap, done.
 >
-> Learn more at **blacktrace.xyz**"
+> **blacktrace.xyz**"
 
 ---
 
-## FAQ Responses (if asked)
+## FAQ (if asked)
 
-### "Why ZEC and STRK specifically?"
-> "This is just a demo configuration. The protocol works with any assets that support hash locks—Bitcoin, Ethereum, Solana, Starknet, and more. ZEC and STRK show it working across two very different chains."
+**"Why so many steps?"**
+> "For $50, use Uniswap. For $500,000, you want verification at every step. Each checkpoint is a safety feature."
 
-### "What if I want to buy tokens with actual cash?"
-> "On blockchain networks, stablecoins like USDC and USDT *are* cash. Buying tokens with USDC is functionally identical to buying with dollars. The stablecoin is just how fiat value is represented on-chain."
+**"Why ZEC and STRK?"**
+> "Just a demo. Works with any chain that supports hash locks—Bitcoin, Ethereum, Solana, etc."
 
-### "Why does Alice encrypt the order? How does she know Bob?"
-> "Alice doesn't know Bob—that's the point. The order is broadcast to everyone on the P2P network. Encryption serves two purposes:
-> 1. Price details are only revealed to serious counterparties who request them
-> 2. Proposals are encrypted to prevent front-running (no one can see Bob's price and undercut him)
->
-> It's privacy by default, not because they know each other."
+**"Why encrypted orders?"**
+> "Prevents front-running. No public order book means no one can see your price and exploit it."
 
-### "Isn't this complicated?"
-> "For a $100 trade, yes—use an AMM. But for $100,000+? These steps are features, not bugs. Each checkpoint lets you verify before proceeding. The complexity protects your capital."
+**"What about fiat?"**
+> "Stablecoins are fiat on-chain. USDC = dollars. Same thing."
