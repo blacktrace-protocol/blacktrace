@@ -99,11 +99,15 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup instructions.
 
 ## Documentation
 
-### Core Docs
-- [Quickstart Guide](docs/QUICKSTART.md) - Get running in 5 minutes
+### Getting Started
+- [Quickstart Guide](docs/QUICKSTART.md) - Run BlackTrace in 5 minutes
 - [Architecture](docs/ARCHITECTURE.md) - System design and components
 - [API Reference](docs/API.md) - Complete endpoint documentation
 - [Key Workflows](docs/KEY_WORKFLOWS.md) - Order, Proposal, Settlement flows
+
+### Vision
+- [The Quest for Bridgeless Settlement](docs/vision/quest-for-bridgeless-settlement.md) - Why BlackTrace exists
+- [Developer Vision](docs/vision/developer-vision.md) - SDK and building on BlackTrace
 
 ### Reference
 - [Settlement Details](docs/SETTLEMENT.md) - HTLC implementation details
