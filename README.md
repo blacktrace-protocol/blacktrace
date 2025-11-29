@@ -114,7 +114,7 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup instructions.
 
 ### Proposals
 - [JS SDK Proposal](docs/proposals/PROPOSAL_JS_SDK.md) - Future SDK design
-- [Pitch Deck](docs/proposals/PITCH.md) - Investor/hackathon pitch
+- [Developer Page](docs/proposals/DEVELOPERS.md) - Developer positioning
 
 ## Project Status
 
