@@ -318,7 +318,7 @@ Check all running BlackTrace node processes:
 
 **Example Output:**
 ```
-📋 Running BlackTrace Nodes:
+ Running BlackTrace Nodes:
 
   PID: 30728 | Started: 4:01PM | P2P Port: 9001 | API Port: 8081
   PID: 30727 | Started: 4:01PM | P2P Port: 9000 | API Port: 8080
@@ -337,7 +337,7 @@ Clean up all running node processes (useful for preventing zombie processes and 
 **Example Output:**
 ```
 ⚠️  Killing all BlackTrace node processes...
-✅ All BlackTrace nodes killed
+ All BlackTrace nodes killed
 💡 Tip: Wait 5 seconds for mDNS cache to expire before starting new nodes
 ```
 
@@ -355,7 +355,7 @@ Query a specific node's status (including peer ID):
 
 **Example Output:**
 ```
-📊 Node Status:
+ Node Status:
 
 Peer ID: 12D3KooWMzrycDnHzjP7PT2BEVHUKvkJoUh2UkayDXkDCLGuN5Yv
 Listening: /ip4/127.0.0.1/tcp/9001
@@ -382,29 +382,29 @@ Orders: 0
 ║   BlackTrace Node                           ║
 ╚══════════════════════════════════════════════╝
 
-🚀 Starting BlackTrace node...
+ Starting BlackTrace node...
    P2P Port: 9000
    API Port: 8080
 
-✅ Node started successfully!
+ Node started successfully!
 
-📍 Node Info:
+ Node Info:
    Peer ID: 12D3KooWH2t6uRSGRyeTfVxnug3nfsu7eDYnWK6kedXqUApyoswn
    Listening on: /ip4/127.0.0.1/tcp/9000
 
-🔌 API Server: http://localhost:8080
+ API Server: http://localhost:8080
 
-🔍 Use this multiaddr to connect other nodes:
+ Use this multiaddr to connect other nodes:
    /ip4/127.0.0.1/tcp/9000/p2p/12D3KooWH2t6uRSGRyeTfVxnug3nfsu7eDYnWK6kedXqUApyoswn
 
 Node is running. Press Ctrl+C to stop.
 ```
 
 **Verification:**
-- ✅ Node displays peer ID
-- ✅ API server starts on port 8080
-- ✅ Multiaddr shown for peer connections
-- ✅ No errors in output
+-  Node displays peer ID
+-  API server starts on port 8080
+-  Multiaddr shown for peer connections
+-  No errors in output
 
 ---
 
@@ -417,7 +417,7 @@ Node is running. Press Ctrl+C to stop.
 
 **Expected Output:**
 ```
-📊 Node Status:
+ Node Status:
 
 Peer ID: 12D3KooWH2t6uRSGRyeTfVxnug3nfsu7eDYnWK6kedXqUApyoswn
 Listening: /ip4/127.0.0.1/tcp/9000
@@ -426,10 +426,10 @@ Orders: 0
 ```
 
 **Verification:**
-- ✅ Shows correct peer ID
-- ✅ Shows listening address
-- ✅ Peer count is 0 (no peers yet)
-- ✅ Order count is 0 (no orders yet)
+-  Shows correct peer ID
+-  Shows listening address
+-  Peer count is 0 (no peers yet)
+-  Order count is 0 (no orders yet)
 
 ---
 
@@ -446,21 +446,21 @@ Orders: 0
 
 **Expected Output:**
 ```
-📝 Creating order:
+ Creating order:
    Amount: 10000 ZEC
    Stablecoin: USDC
    Price Range: $450 - $470 per ZEC
    Total Range: $4500000 - $4700000 USDC
 
-✅ Order created: order_1763358093
-📤 Broadcasting to network...
+ Order created: order_1763358093
+ Broadcasting to network...
 ```
 
 **Verification:**
-- ✅ Order ID generated (timestamp-based)
-- ✅ Price range calculated correctly
-- ✅ Total range displayed
-- ✅ No errors
+-  Order ID generated (timestamp-based)
+-  Price range calculated correctly
+-  Total range displayed
+-  No errors
 
 ---
 
@@ -473,9 +473,9 @@ Orders: 0
 
 **Expected Output:**
 ```
-🔍 Listing all orders:
+ Listing all orders:
 
-📋 Order ID: order_1763358093
+ Order ID: order_1763358093
    Type: Sell
    Stablecoin: USDC
    Timestamp: 1763358093
@@ -484,9 +484,9 @@ Total: 1 orders
 ```
 
 **Verification:**
-- ✅ Shows previously created order
-- ✅ Displays order details
-- ✅ Count is correct
+-  Shows previously created order
+-  Displays order details
+-  Count is correct
 
 ---
 
@@ -499,14 +499,14 @@ Total: 1 orders
 
 **Expected Output:**
 ```
-💬 Requesting details for order: order_1763358093
-✅ Request sent to maker
-📨 Waiting for response...
+ Requesting details for order: order_1763358093
+ Request sent to maker
+ Waiting for response...
 ```
 
 **Verification:**
-- ✅ Request accepted
-- ✅ No errors
+-  Request accepted
+-  No errors
 
 ---
 
@@ -521,18 +521,18 @@ Total: 1 orders
 
 **Expected Output:**
 ```
-💰 Proposing for order: order_1763358093
+ Proposing for order: order_1763358093
    Price: $460 per ZEC
    Amount: 10000 ZEC
    Total: $4600000
 
-✅ Proposal sent
+ Proposal sent
 ```
 
 **Verification:**
-- ✅ Total calculated correctly ($460 × 10000)
-- ✅ Proposal accepted
-- ✅ No errors
+-  Total calculated correctly ($460 × 10000)
+-  Proposal accepted
+-  No errors
 
 ---
 
@@ -545,14 +545,14 @@ Total: 1 orders
 
 **Expected Output (single node):**
 ```
-📡 Connected Peers:
+ Connected Peers:
 
 No peers connected
 ```
 
 **Verification:**
-- ✅ Shows "No peers" for single node
-- ✅ No errors
+-  Shows "No peers" for single node
+-  No errors
 
 ---
 
@@ -578,7 +578,7 @@ Copy the multiaddr from the output:
 
 **Expected Output on Node B:**
 ```
-🔗 Connecting to peer: /ip4/127.0.0.1/tcp/9000/p2p/12D3Koo...
+ Connecting to peer: /ip4/127.0.0.1/tcp/9000/p2p/12D3Koo...
 ...
 Discovered peer via mDNS: 12D3KooWH2t6uRSGRyeTfVxnug3nfsu7eDYnWK6kedXqUApyoswn
 Connected to peer: 12D3KooWH2t6uRSGRyeTfVxnug3nfsu7eDYnWK6kedXqUApyoswn
@@ -620,9 +620,9 @@ On Node A (port 8080):
 
 Expected:
 ```
-📡 Connected Peers:
+ Connected Peers:
 
-🔗 12D3KooW... (Node B's peer ID)
+ 12D3KooW... (Node B's peer ID)
    Address: /ip4/127.0.0.1/tcp/9001
 
 Total: 1 peers
@@ -645,7 +645,7 @@ curl http://localhost:8081/peers
 
 ## Testing Checklist
 
-### ✅ Single Node Tests
+###  Single Node Tests
 - [ ] Node starts successfully with P2P and API ports
 - [ ] `query status` shows correct node info
 - [ ] `order create` creates and broadcasts order
@@ -654,14 +654,14 @@ curl http://localhost:8081/peers
 - [ ] `negotiate propose` sends proposal
 - [ ] `query peers` shows no peers (single node)
 
-### ✅ Two Node Tests
+###  Two Node Tests
 - [ ] Node B connects to Node A via multiaddr
 - [ ] mDNS peer discovery works
 - [ ] Both nodes see each other in peer list
 - [ ] Orders propagate from Node A to Node B
 - [ ] Negotiation messages sent between nodes
 
-### ✅ Error Handling
+###  Error Handling
 - [ ] CLI shows error when node not running
 - [ ] Invalid order parameters rejected
 - [ ] Missing required flags cause error
@@ -740,7 +740,7 @@ echo "Starting node..."
 NODE_PID=$!
 sleep 3
 
-echo "✅ Node started (PID: $NODE_PID)"
+echo " Node started (PID: $NODE_PID)"
 echo ""
 
 # Test 1: Status
@@ -768,7 +768,7 @@ echo "Cleaning up..."
 kill $NODE_PID
 wait $NODE_PID 2>/dev/null || true
 
-echo "✅ All tests passed!"
+echo " All tests passed!"
 ```
 
 Run with:
@@ -958,11 +958,11 @@ Run a full two-node workflow and verify all cryptographic features:
 ```
 
 The demo now includes a **Step 13: Verify Cryptographic Features** that checks:
-- ✅ ECDSA message signing
-- ✅ Signature verification
-- ✅ CryptoManager initialization
-- ✅ Peer public key caching
-- ✅ ECIES encryption readiness
+-  ECDSA message signing
+-  Signature verification
+-  CryptoManager initialization
+-  Peer public key caching
+-  ECIES encryption readiness
 
 ### Security Properties Verified
 
@@ -1050,6 +1050,6 @@ After CLI testing is complete:
 ---
 
 **Last Updated:** 2025-11-19
-**Status:** ✅ All CLI commands tested and working
-**Two-Node Demo:** ✅ P2P maker/taker workflow verified
-**Cryptography:** ✅ ECDSA signatures and ECIES encryption (Phase 2B complete)
+**Status:**  All CLI commands tested and working
+**Two-Node Demo:**  P2P maker/taker workflow verified
+**Cryptography:**  ECDSA signatures and ECIES encryption (Phase 2B complete)

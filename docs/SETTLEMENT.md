@@ -7,13 +7,13 @@
 **The Settlement Service CANNOT and SHOULD NOT sign blockchain transactions.** This is crucial to understand:
 
 ```
-❌ WRONG: Settlement Service holds private keys
+ WRONG: Settlement Service holds private keys
    - Massive security risk
    - Defeats "trustless" purpose
    - Single point of failure
    - Users don't control their funds
 
-✅ CORRECT: Users sign their own transactions
+ CORRECT: Users sign their own transactions
    - Private keys stay in user wallets
    - Settlement Service is a COORDINATOR only
    - Fully trustless
@@ -25,17 +25,17 @@
 The Settlement Service orchestrates the atomic swap but **never touches private keys**:
 
 **What it DOES:**
-- ✅ Generates secret and hash for HTLCs
-- ✅ Publishes instructions to Alice and Bob's nodes
-- ✅ Monitors blockchains (read-only)
-- ✅ Coordinates claim sequence
-- ✅ Publishes status updates
+-  Generates secret and hash for HTLCs
+-  Publishes instructions to Alice and Bob's nodes
+-  Monitors blockchains (read-only)
+-  Coordinates claim sequence
+-  Publishes status updates
 
 **What it DOES NOT do:**
-- ❌ Hold private keys
-- ❌ Sign transactions
-- ❌ Create HTLCs directly
-- ❌ Access user wallets
+-  Hold private keys
+-  Sign transactions
+-  Create HTLCs directly
+-  Access user wallets
 
 ### Transaction Signing Responsibility
 
@@ -52,7 +52,7 @@ The Settlement Service orchestrates the atomic swap but **never touches private 
 
 ## Current Architecture Overview
 
-### ✅ What's Already Built
+###  What's Already Built
 
 ```
 ┌──────────────┐         ┌──────────────┐
@@ -92,22 +92,22 @@ The Settlement Service orchestrates the atomic swap but **never touches private 
 
 ### Components Status
 
-1. **✅ Go Backend (node/app.go)**
+1. ** Go Backend (node/app.go)**
    - When Alice accepts a proposal (line 960-999)
    - Publishes `SettlementRequest` to NATS
    - Subject: `settlement.request.<proposal_id>`
 
-2. **✅ Settlement Manager (node/settlement.go)**
+2. ** Settlement Manager (node/settlement.go)**
    - Connects to NATS on startup
    - Publishes settlement requests
    - Handles reconnection automatically
 
-3. **✅ NATS Broker**
+3. ** NATS Broker**
    - Running on port 4222
    - Configured in docker-compose.yml
    - JetStream enabled for persistence
 
-4. **✅ Settlement Service (settlement-service/src/main.rs)**
+4. ** Settlement Service (settlement-service/src/main.rs)**
    - Subscribes to `settlement.request.*`
    - Receives and deserializes requests
    - **Currently**: Just logs the request
@@ -160,15 +160,15 @@ Location: `settlement-service/src/main.rs:56-94`
 
 Currently logs:
 ```
-📩 NEW SETTLEMENT REQUEST RECEIVED
+ NEW SETTLEMENT REQUEST RECEIVED
   Proposal ID:       proposal_1763749677
   Order ID:          order_1763749677
 
-  👥 Parties:
+   Parties:
      Maker (Alice):  QmYyQSo1c1Zs...
      Taker (Bob):    QmcZf52FlLXr...
 
-  💰 Trade Details:
+   Trade Details:
      Amount:         10000 ZEC
      Price:          $465
      Stablecoin:     USDC
@@ -214,7 +214,7 @@ Here's the full flow showing how wallets are integrated:
    }
    ↓
 7. Frontend shows modal:
-   "🔐 Sign Transaction to Lock 10,000 ZEC"
+   " Sign Transaction to Lock 10,000 ZEC"
    [Approve] [Reject]
    ↓
 8. Alice clicks Approve
@@ -236,7 +236,7 @@ Here's the full flow showing how wallets are integrated:
 12. Signed TX broadcast to Zcash network
     ↓
 13. Settlement Service monitors Zcash blockchain:
-    "✅ HTLC created! TX: 0xzcash_tx_hash"
+    " HTLC created! TX: 0xzcash_tx_hash"
     ↓
 14. Settlement Service → NATS → Bob's Node:
     "settlement.instruction.bob_peer_id"
@@ -258,7 +258,7 @@ Here's the full flow showing how wallets are integrated:
     }
     ↓
 16. Frontend shows modal:
-    "🔐 Sign Transaction to Lock $4,650,000 USDC"
+    " Sign Transaction to Lock $4,650,000 USDC"
     [Approve] [Reject]
     ↓
 17. Bob clicks Approve
@@ -279,7 +279,7 @@ Here's the full flow showing how wallets are integrated:
 21. Signed TX broadcast to Starknet
     ↓
 22. Settlement Service monitors Starknet:
-    "✅ Both HTLCs created!"
+    " Both HTLCs created!"
     ↓
 23. Settlement Service → NATS → Alice's Node:
     "settlement.instruction.alice_peer_id"
@@ -290,12 +290,12 @@ Here's the full flow showing how wallets are integrated:
     }
     ↓
 24. Alice's Frontend → ArgentX:
-    "🔐 Sign Transaction to Claim $4,650,000 USDC"
+    " Sign Transaction to Claim $4,650,000 USDC"
     ↓
 25. Alice signs → Secret revealed on Starknet blockchain
     ↓
 26. Settlement Service monitors Starknet:
-    "✅ Alice claimed USDC! Secret revealed: 0xsecret123..."
+    " Alice claimed USDC! Secret revealed: 0xsecret123..."
     ↓
 27. Settlement Service → NATS → Bob's Node:
     "settlement.instruction.bob_peer_id"
@@ -306,12 +306,12 @@ Here's the full flow showing how wallets are integrated:
     }
     ↓
 28. Bob's Frontend → Zcash Wallet:
-    "🔐 Sign Transaction to Claim 10,000 ZEC"
+    " Sign Transaction to Claim 10,000 ZEC"
     ↓
 29. Bob signs → Claims ZEC
     ↓
 30. Settlement Service:
-    "✅ ATOMIC SWAP COMPLETE"
+    " ATOMIC SWAP COMPLETE"
     - Alice received $4,650,000 USDC
     - Bob received 10,000 ZEC
 ```
@@ -335,13 +335,13 @@ HTLCs enable **atomic swaps** - both trades complete or both fail, with zero cou
 **Without HTLCs:**
 - Alice sends ZEC first → Bob might not send USDC (Alice loses money)
 - Bob sends USDC first → Alice might not send ZEC (Bob loses money)
-- Need to trust each other ❌
+- Need to trust each other 
 
 **With HTLCs:**
 - Both lock funds in smart contracts with the same hash secret
 - Alice reveals secret to claim USDC → Bob sees secret and claims ZEC
 - Or both get refunds after timeout
-- **Zero counterparty risk** ✅
+- **Zero counterparty risk** 
 
 ---
 
@@ -407,8 +407,8 @@ zTarknet (Starknet)
 Alice → zTarknet HTLC: claim(secret = s)
 
 zTarknet HTLC verifies:
-  ✓ SHA256(s) == h
-  ✓ Recipient == Alice
+  Yes SHA256(s) == h
+  Yes Recipient == Alice
 
 → Transfer $4,650,000 USDC to Alice
 → Secret `s` is now PUBLIC on blockchain
@@ -422,13 +422,13 @@ Bob monitors zTarknet → sees Alice's claim → extracts secret `s`
 Bob → Zcash L1 HTLC: claim(secret = s)
 
 Zcash HTLC verifies:
-  ✓ SHA256(s) == h
-  ✓ Recipient == Bob
+  Yes SHA256(s) == h
+  Yes Recipient == Bob
 
 → Transfer 10,000 ZEC to Bob
 ```
 
-### Result: Atomic Swap Complete ✅
+### Result: Atomic Swap Complete 
 
 - Alice gets $4,650,000 USDC
 - Bob gets 10,000 ZEC
@@ -441,17 +441,17 @@ Zcash HTLC verifies:
 ### Why User-Initiated?
 
 **The Problem with Auto-Triggered Settlement:**
-- ❌ User might not be at their screen when wallet popup appears
-- ❌ Unexpected wallet requests are bad UX
-- ❌ Creates timeout risk if user is away
-- ❌ No control over when settlement starts
+-  User might not be at their screen when wallet popup appears
+-  Unexpected wallet requests are bad UX
+-  Creates timeout risk if user is away
+-  No control over when settlement starts
 
 **The Solution: Let Users Start When Ready:**
-- ✅ Alice clicks "Lock ZEC" when she's ready
-- ✅ Bob clicks "Lock USDC" when he's ready
-- ✅ Clear, intentional actions
-- ✅ No surprise popups
-- ✅ Better UX
+-  Alice clicks "Lock ZEC" when she's ready
+-  Bob clicks "Lock USDC" when he's ready
+-  Clear, intentional actions
+-  No surprise popups
+-  Better UX
 
 ### Settlement Tabs in UI
 
@@ -506,7 +506,7 @@ Transaction broadcast to Zcash network
     ↓
 Settlement Service monitors blockchain
     ↓
-Sees Alice's HTLC created ✅
+Sees Alice's HTLC created 
 
 Status updates to: settlement_status = "alice_locked"
 
@@ -514,7 +514,7 @@ Status updates to: settlement_status = "alice_locked"
 │ Alice's "Settlement" Tab             │
 ├──────────────────────────────────────┤
 │ Proposal #abc123                     │
-│ Status: ✅ ZEC Locked                │
+│ Status:  ZEC Locked                │
 │ Waiting for Bob to lock USDC...     │
 └──────────────────────────────────────┘
 
@@ -529,7 +529,7 @@ Proposal appears in Bob's "Settlement" tab
 │ Bob's "Settlement" Tab               │
 ├──────────────────────────────────────┤
 │ Proposal #abc123                     │
-│ Alice locked 10,000 ZEC ✅           │
+│ Alice locked 10,000 ZEC            │
 │ Your turn: Lock $4.65M USDC          │
 │ [Lock $4,650,000 USDC] ← Bob clicks │
 └──────────────────────────────────────┘
@@ -546,7 +546,7 @@ Transaction broadcast to Starknet
     ↓
 Settlement Service monitors blockchain
     ↓
-Sees Bob's HTLC created ✅
+Sees Bob's HTLC created 
 
 Status updates to: settlement_status = "both_locked"
 
@@ -561,8 +561,8 @@ Proposal appears in global "Settlement Queue" (bottom)
 │ Settlement Queue (Global)            │
 ├──────────────────────────────────────┤
 │ Proposal #abc123                     │
-│ Alice: 10,000 ZEC locked ✅          │
-│ Bob: $4.65M USDC locked ✅           │
+│ Alice: 10,000 ZEC locked           │
+│ Bob: $4.65M USDC locked            │
 │ Status: Ready to Claim               │
 │                                      │
 │ [Claim USDC] (Alice's button)       │
@@ -587,7 +587,7 @@ Bob clicks "Claim ZEC"
     ↓
 Wallet popup → Bob signs claim transaction
     ↓
-✅ ATOMIC SWAP COMPLETE
+ ATOMIC SWAP COMPLETE
 ```
 
 ### Proposal Lifecycle with Settlement Tabs
@@ -644,13 +644,13 @@ State: accepted, settlement_status: complete
 │  │ Proposal #abc123                    │               │
 │  │ 10,000 ZEC for $4.65M USDC          │               │
 │  │ Status: Ready to Lock               │               │
-│  │ [Lock 10,000 ZEC] 🔐                │               │
+│  │ [Lock 10,000 ZEC]                 │               │
 │  └─────────────────────────────────────┘               │
 │                                                          │
 │  ┌─────────────────────────────────────┐               │
 │  │ Proposal #def456                    │               │
 │  │ 5,000 ZEC for $2.3M USDC            │               │
-│  │ Status: ✅ ZEC Locked               │               │
+│  │ Status:  ZEC Locked               │               │
 │  │ Waiting for Bob...                  │               │
 │  └─────────────────────────────────────┘               │
 └─────────────────────────────────────────────────────────┘
@@ -664,9 +664,9 @@ State: accepted, settlement_status: complete
 │                                                          │
 │  ┌─────────────────────────────────────┐               │
 │  │ Proposal #def456                    │               │
-│  │ Alice locked 5,000 ZEC ✅           │               │
+│  │ Alice locked 5,000 ZEC            │               │
 │  │ Your turn: Lock $2.3M USDC          │               │
-│  │ [Lock $2,300,000 USDC] 🔐           │               │
+│  │ [Lock $2,300,000 USDC]            │               │
 │  └─────────────────────────────────────┘               │
 └─────────────────────────────────────────────────────────┘
 
@@ -677,8 +677,8 @@ State: accepted, settlement_status: complete
 │                                                          │
 │  ┌─────────────────────────────────────┐               │
 │  │ Proposal #abc123                    │               │
-│  │ Alice: 10,000 ZEC locked ✅         │               │
-│  │ Bob: $4.65M USDC locked ✅          │               │
+│  │ Alice: 10,000 ZEC locked          │               │
+│  │ Bob: $4.65M USDC locked           │               │
 │  │                                      │               │
 │  │ [Claim USDC] (Alice)                │               │
 │  │ [Claim ZEC] (Bob)                   │               │
@@ -688,7 +688,7 @@ State: accepted, settlement_status: complete
 
 ### Key Benefits
 
-| Feature | Auto-Triggered | User-Initiated ✅ |
+| Feature | Auto-Triggered | User-Initiated  |
 |---------|---------------|-------------------|
 | **User Control** | No - automatic | Yes - click button |
 | **Wallet Popups** | Unexpected | Expected (user clicked) |
@@ -706,7 +706,7 @@ State: accepted, settlement_status: complete
 
 There are three approaches to implementing wallet integration, each with tradeoffs:
 
-### Option 1: Full Wallet Integration (Recommended for Production) ✅
+### Option 1: Full Wallet Integration (Recommended for Production) 
 
 **Architecture:**
 ```
@@ -746,17 +746,17 @@ const createHTLC = async (params) => {
 ```
 
 **Pros:**
-- ✅ Fully trustless - users control private keys
-- ✅ Standard wallet UX (familiar to crypto users)
-- ✅ No backend security risk
-- ✅ Production-ready architecture
-- ✅ Works with existing wallet ecosystems
+-  Fully trustless - users control private keys
+-  Standard wallet UX (familiar to crypto users)
+-  No backend security risk
+-  Production-ready architecture
+-  Works with existing wallet ecosystems
 
 **Cons:**
-- ❌ Requires wallet integration development
-- ❌ Users must have wallets installed
-- ❌ More complex UX flow
-- ❌ Wallet popup friction
+-  Requires wallet integration development
+-  Users must have wallets installed
+-  More complex UX flow
+-  Wallet popup friction
 
 **When to use:** Production deployment, when trustlessness is critical
 
@@ -789,17 +789,17 @@ func (wm *WalletManager) CreateZcashHTLC(params HTLCParams) error {
 ```
 
 **Pros:**
-- ✅ Simpler implementation
-- ✅ No wallet popups - automatic signing
-- ✅ Faster UX - no user approval needed
-- ✅ Easier testing
+-  Simpler implementation
+-  No wallet popups - automatic signing
+-  Faster UX - no user approval needed
+-  Easier testing
 
 **Cons:**
-- ❌ Backend must store private keys (security risk)
-- ❌ Not fully trustless
-- ❌ Single point of failure
-- ❌ Users don't control their funds
-- ❌ Regulatory compliance issues
+-  Backend must store private keys (security risk)
+-  Not fully trustless
+-  Single point of failure
+-  Users don't control their funds
+-  Regulatory compliance issues
 
 **When to use:** Internal testing, demo mode (testnet only), trusted environment
 
@@ -830,7 +830,7 @@ impl MockHTLCManager {
         let htlc_id = generate_id();
 
         // Log instead of real blockchain
-        info!("✅ Mock HTLC created on {}", params.chain);
+        info!(" Mock HTLC created on {}", params.chain);
         info!("   ID: {}", htlc_id);
         info!("   Amount: {}", params.amount);
         info!("   Hash: {}", params.hash);
@@ -848,17 +848,17 @@ impl MockHTLCManager {
 ```
 
 **Pros:**
-- ✅ Very fast to implement
-- ✅ No blockchain required
-- ✅ No wallet needed
-- ✅ Perfect for UI/UX demos
-- ✅ Test coordination logic
+-  Very fast to implement
+-  No blockchain required
+-  No wallet needed
+-  Perfect for UI/UX demos
+-  Test coordination logic
 
 **Cons:**
-- ❌ Not real settlement
-- ❌ Just a simulation
-- ❌ Can't verify actual atomicity
-- ❌ No smart contract testing
+-  Not real settlement
+-  Just a simulation
+-  Can't verify actual atomicity
+-  No smart contract testing
 
 **When to use:** Initial development, UI demos, coordination flow testing
 
@@ -976,17 +976,17 @@ let htlc_manager = HTLCManager::new(zcash_client, starknet_client).await?;
 while let Some(message) = subscriber.next().await {
     match serde_json::from_slice::<SettlementRequest>(&message.payload) {
         Ok(request) => {
-            info!("📩 NEW SETTLEMENT REQUEST");
+            info!(" NEW SETTLEMENT REQUEST");
 
             // Initiate HTLC swap
             match htlc_manager.initiate_swap(request).await {
                 Ok(swap) => {
-                    info!("✅ HTLC swap initiated");
+                    info!(" HTLC swap initiated");
                     info!("   Zcash HTLC: {}", swap.zcash_htlc.txid);
                     info!("   Starknet HTLC: {}", swap.starknet_htlc.txid);
                 }
                 Err(e) => {
-                    error!("❌ Failed to initiate swap: {}", e);
+                    error!(" Failed to initiate swap: {}", e);
                 }
             }
         }
@@ -1025,7 +1025,7 @@ const response = await aliceAPI.getSettlementStatus(proposalId);
 // - HTLC created on Starknet
 // - Alice claimed USDC
 // - Bob claimed ZEC
-// - Swap complete ✅
+// - Swap complete 
 ```
 
 ---
@@ -1177,7 +1177,7 @@ Proposal Accepted → Settlement Queue → [Manual process]
 ```
 Proposal Accepted → NATS → Settlement Service → HTLCs Created
                                               → Monitor Claims
-                                              → Atomic Swap Complete ✅
+                                              → Atomic Swap Complete 
 ```
 
 ---
@@ -1206,7 +1206,7 @@ Proposal Accepted → NATS → Settlement Service → HTLCs Created
    ```
 4. **Go Backend (Alice)** subscribes to instructions, receives it
 5. **Go Backend → WebSocket → Frontend**: Notify Alice of pending HTLC
-6. **Frontend shows modal**: "🔐 Sign Transaction to Lock 10,000 ZEC"
+6. **Frontend shows modal**: " Sign Transaction to Lock 10,000 ZEC"
 7. **Alice clicks "Approve"**
 8. **Frontend → Zcash Wallet** (browser extension or desktop wallet):
    ```typescript
@@ -1221,13 +1221,13 @@ Proposal Accepted → NATS → Settlement Service → HTLCs Created
 9. **Zcash Wallet popup**: "Approve locking 10,000 ZEC?" → Alice enters password
 10. **Wallet signs** transaction with Alice's private key (stays in wallet)
 11. **Signed transaction broadcast** to Zcash network
-12. **Settlement Service monitors** Zcash blockchain (read-only): "✅ HTLC created!"
+12. **Settlement Service monitors** Zcash blockchain (read-only): " HTLC created!"
 
 **Key points:**
-- ✅ Alice's private key **never leaves her wallet**
-- ✅ Settlement Service **cannot** create HTLC without Alice's approval
-- ✅ Standard wallet UX (like MetaMask)
-- ✅ Fully trustless
+-  Alice's private key **never leaves her wallet**
+-  Settlement Service **cannot** create HTLC without Alice's approval
+-  Standard wallet UX (like MetaMask)
+-  Fully trustless
 
 ---
 
@@ -1252,7 +1252,7 @@ Proposal Accepted → NATS → Settlement Service → HTLCs Created
    ```
 3. **Go Backend (Bob)** receives instruction via NATS subscription
 4. **Go Backend → WebSocket → Frontend**: Notify Bob
-5. **Frontend shows modal**: "🔐 Sign Transaction to Lock $4,650,000 USDC"
+5. **Frontend shows modal**: " Sign Transaction to Lock $4,650,000 USDC"
 6. **Bob clicks "Approve"**
 7. **Frontend → ArgentX (Starknet wallet)**:
    ```typescript
@@ -1272,13 +1272,13 @@ Proposal Accepted → NATS → Settlement Service → HTLCs Created
 8. **ArgentX popup**: "Approve locking $4,650,000 USDC?" → Bob approves
 9. **Wallet signs** transaction with Bob's private key
 10. **Signed transaction broadcast** to Starknet
-11. **Settlement Service monitors** Starknet: "✅ Both HTLCs created! Ready to claim."
+11. **Settlement Service monitors** Starknet: " Both HTLCs created! Ready to claim."
 
 **Key points:**
-- ✅ Bob's private key **never leaves his wallet**
-- ✅ Bob sees Alice locked ZEC **before** he locks USDC (security)
-- ✅ Same hash ensures atomic swap
-- ✅ Fully trustless
+-  Bob's private key **never leaves his wallet**
+-  Bob sees Alice locked ZEC **before** he locks USDC (security)
+-  Same hash ensures atomic swap
+-  Fully trustless
 
 ---
 
@@ -1350,10 +1350,10 @@ Proposal Accepted → NATS → Settlement Service → HTLCs Created
    ```
 
 **What Settlement Service DOES NOT DO:**
-- ❌ Hold any private keys
-- ❌ Sign any transactions
-- ❌ Create HTLCs directly
-- ❌ Access user funds
+-  Hold any private keys
+-  Sign any transactions
+-  Create HTLCs directly
+-  Access user funds
 
 **Communication Architecture:**
 ```
@@ -1415,7 +1415,7 @@ pub struct MockHTLCManager {
 impl MockHTLCManager {
     async fn create_htlc(&mut self, params: HTLCParams) -> String {
         // Don't create real HTLC, just log it
-        info!("✅ Mock HTLC created on {}", params.chain);
+        info!(" Mock HTLC created on {}", params.chain);
 
         // Store in memory
         let id = generate_id();

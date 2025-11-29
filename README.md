@@ -104,7 +104,6 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup instructions.
 - [Architecture](docs/ARCHITECTURE.md) - System design and components
 - [API Reference](docs/API.md) - Complete endpoint documentation
 - [Key Workflows](docs/KEY_WORKFLOWS.md) - Order, Proposal, Settlement flows
-- [Demo Script](docs/DEMO_SCRIPT.md) - Presentation talking points
 
 ### Reference
 - [Settlement Details](docs/SETTLEMENT.md) - HTLC implementation details

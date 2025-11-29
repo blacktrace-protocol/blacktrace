@@ -70,17 +70,17 @@ BlackTrace uses **Hash Time-Locked Contracts (HTLCs)** to enable trustless atomi
 ### Key Characteristics
 
 **Pros:**
-- ✅ Fast to implement
-- ✅ Proves atomic swap logic works
-- ✅ No wallet integration complexity
-- ✅ Easy to test and debug
-- ✅ Can use testnet faucets
+-  Fast to implement
+-  Proves atomic swap logic works
+-  No wallet integration complexity
+-  Easy to test and debug
+-  Can use testnet faucets
 
 **Cons:**
-- ❌ Settlement service holds private keys (centralized)
-- ❌ Not production-ready
-- ❌ Users don't control their funds
-- ❌ Demo only - not secure for real value
+-  Settlement service holds private keys (centralized)
+-  Not production-ready
+-  Users don't control their funds
+-  Demo only - not secure for real value
 
 ### Implementation Details
 
@@ -169,17 +169,17 @@ bob_starknet_privkey = "0x..."       # Starknet testnet
 ### Key Characteristics
 
 **Pros:**
-- ✅ Users control their private keys
-- ✅ Non-custodial (trustless)
-- ✅ Production-ready security model
-- ✅ Settlement service never sees private keys
-- ✅ Follows web3 best practices
+-  Users control their private keys
+-  Non-custodial (trustless)
+-  Production-ready security model
+-  Settlement service never sees private keys
+-  Follows web3 best practices
 
 **Cons:**
-- ❌ Complex wallet integration
-- ❌ Requires wallet support for custom scripts
-- ❌ Different UX for desktop vs mobile
-- ❌ Longer development time
+-  Complex wallet integration
+-  Requires wallet support for custom scripts
+-  Different UX for desktop vs mobile
+-  Longer development time
 
 ### Wallet Integration Options
 
@@ -232,7 +232,7 @@ const qrData = {
 5. **Reveal secret** after both sides locked
 6. **Publish claim instructions** (unsigned claim txs)
 
-**No private keys stored** ✅
+**No private keys stored** 
 
 ---
 
@@ -543,13 +543,13 @@ both_locked → claiming → complete
 ### Atomic Swap Guarantees
 
 **Atomicity:** Either both succeed or both fail
-- ✅ Cryptographically guaranteed by hash lock
-- ✅ Time locks ensure refunds
+-  Cryptographically guaranteed by hash lock
+-  Time locks ensure refunds
 
 **Fairness:**
-- ✅ Secret revelation is one-way (blockchain is public)
-- ✅ First claimer reveals secret for second claimer
-- ✅ No party can cheat
+-  Secret revelation is one-way (blockchain is public)
+-  First claimer reveals secret for second claimer
+-  No party can cheat
 
 ### Attack Vectors & Mitigations
 
@@ -582,10 +582,10 @@ both_locked → claiming → complete
 - ⚠️ Encrypt keys at rest
 
 **Production:**
-- ✅ Users control private keys
-- ✅ Settlement service only coordinates
-- ✅ Non-custodial design
-- ✅ Zero trust architecture
+-  Users control private keys
+-  Settlement service only coordinates
+-  Non-custodial design
+-  Zero trust architecture
 
 ---
 

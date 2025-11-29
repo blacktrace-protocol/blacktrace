@@ -11,7 +11,7 @@ Get BlackTrace running in under 5 minutes.
 
 ```bash
 # Clone and start
-git clone https://github.com/your-org/blacktrace.git
+git clone https://github.com/blacktrace-protocol/blacktrace.git
 cd blacktrace
 
 # Start core services

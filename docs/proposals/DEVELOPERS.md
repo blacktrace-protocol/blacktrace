@@ -399,7 +399,7 @@ OP_EQUALVERIFY OP_CHECKSIG
 ### Docker Compose
 
 ```bash
-git clone https://github.com/prabhueshwarla/blacktrace.git
+git clone https://github.com/blacktrace-protocol/blacktrace.git
 cd blacktrace
 
 # Start all services
@@ -462,8 +462,8 @@ sdk.watchSettlement(proposalId).on('status', (event) => {
 
 ## Support
 
-- **Documentation**: [docs/](https://github.com/prabhueshwarla/blacktrace/tree/main/docs)
-- **GitHub Issues**: [github.com/prabhueshwarla/blacktrace/issues](https://github.com/prabhueshwarla/blacktrace/issues)
+- **Documentation**: [docs/](https://github.com/blacktrace-protocol/blacktrace/tree/main/docs)
+- **GitHub Issues**: [github.com/blacktrace-protocol/blacktrace/issues](https://github.com/blacktrace-protocol/blacktrace/issues)
 - **API Reference**: [docs/API.md](../API.md)
 
 ---
