@@ -522,27 +522,5 @@ blacktrace/
 
 ---
 
-## Project Status
-
-### Completed
-- P2P networking with libp2p
-- User authentication and session management
-- ECIES encryption for order details
-- ECDSA message signatures
-- Order creation and broadcasting
-- Proposal negotiation and acceptance
-- NATS-based settlement coordination
-- Zcash HTLC script construction
-- Zcash lock and claim transactions
-- Starknet HTLC contract integration
-- Docker Compose orchestration
-
-### In Progress
-- Frontend settlement UI
-- End-to-end integration testing
-- Production deployment configuration
-
----
-
-**Last Updated**: 2025-11-29
+**Last Updated**: 2025-11-30
 **Version**: 0.5.0
