@@ -141,6 +141,33 @@ func (wm *WalletManager) RecordFunding(username string, amount float64) error {
 	return nil
 }
 
+// DeleteWallet removes a wallet for a user (used to clean up orphaned wallets)
+func (wm *WalletManager) DeleteWallet(username string) error {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+
+	if _, exists := wm.wallets[username]; !exists {
+		return nil // No wallet to delete
+	}
+
+	delete(wm.wallets, username)
+
+	// Save to disk
+	if err := wm.save(); err != nil {
+		return fmt.Errorf("failed to save wallet: %w", err)
+	}
+
+	return nil
+}
+
+// WalletExists checks if a wallet exists for a user
+func (wm *WalletManager) WalletExists(username string) bool {
+	wm.mu.RLock()
+	defer wm.mu.RUnlock()
+	_, exists := wm.wallets[username]
+	return exists
+}
+
 // CanRequestFunding checks if a user can request more funding (100 ZEC limit)
 func (wm *WalletManager) CanRequestFunding(username string, amount float64) (bool, float64, error) {
 	wm.mu.RLock()

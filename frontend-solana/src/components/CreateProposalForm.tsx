@@ -1,0 +1,194 @@
+import { useState } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
+import { bobAPI } from '../lib/api';
+import { useStore } from '../lib/store';
+import { Send, Coins, X } from 'lucide-react';
+import type { Order, Proposal } from '../lib/types';
+import { logWorkflowStart, logWorkflow, logSuccess, logError } from '../lib/logger';
+
+interface CreateProposalFormProps {
+  order: Order;
+  onClose: () => void;
+  onSuccess: () => void;
+  initialProposal?: Proposal;
+}
+
+export function CreateProposalForm({ order, onClose, onSuccess, initialProposal }: CreateProposalFormProps) {
+  const [amount, setAmount] = useState(
+    initialProposal ? (initialProposal.amount / 100000000).toFixed(4) : (order.amount / 100000000).toFixed(4)
+  );
+  const [price, setPrice] = useState(
+    initialProposal ? (initialProposal.price / 1000000000).toString() : ''
+  );
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const user = useStore((state) => state.bob.user);
+
+  // Handle order ID safely
+  const orderId = order.id || (order as any).order_id || 'unknown';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!user?.token) {
+      setError('Please login first');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      logWorkflowStart('PROPOSAL', `New Proposal for Order`);
+      logWorkflow('PROPOSAL', 'Creating proposal...', {
+        orderId: orderId.substring(0, 8) + '...',
+        amount: `${amount} ZEC`,
+        price: `${price} SOL/ZEC`,
+        total: `${(parseFloat(amount) * parseFloat(price)).toFixed(2)} SOL`
+      });
+
+      // Convert amount to zatoshi (1 ZEC = 1e8 zatoshi), price to lamports (1 SOL = 1e9 lamports)
+      await bobAPI.createProposal({
+        session_id: user.token,
+        order_id: orderId,
+        amount: Math.round(parseFloat(amount) * 100000000),
+        price: Math.round(parseFloat(price) * 1000000000),
+      });
+
+      logSuccess('PROPOSAL', 'Proposal sent via P2P', { orderId: orderId.substring(0, 8) + '...' });
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      logError('PROPOSAL', 'Proposal creation failed', err);
+      setError(err.response?.data?.error || 'Failed to create proposal');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const totalValue = parseFloat(amount || '0') * parseFloat(price || '0');
+
+  return (
+    <Card>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Send className="h-5 w-5" />
+              Make Proposal
+            </CardTitle>
+            <CardDescription>
+              Propose terms for this order
+            </CardDescription>
+          </div>
+          <Button size="sm" variant="ghost" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="mb-4 p-3 bg-muted/30 rounded-md border border-border">
+          <div className="text-xs text-muted-foreground mb-2">Order Details</div>
+          <div className="mb-2 pb-2 border-b border-border/50">
+            <div className="text-xs text-muted-foreground">Order ID</div>
+            <div className="font-mono text-xs break-all text-primary mt-1">
+              {orderId}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div>
+              <span className="text-muted-foreground">Amount:</span>
+              <span className="ml-2 font-medium">{(order.amount / 100000000).toFixed(4)} ZEC</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">For:</span>
+              <span className="ml-2 font-medium">{order.stablecoin}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Min Price:</span>
+              <span className="ml-2 font-medium">{(order.min_price / 1000000000).toFixed(4)} SOL</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground">Max Price:</span>
+              <span className="ml-2 font-medium">{(order.max_price / 1000000000).toFixed(4)} SOL</span>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              ZEC Amount
+            </label>
+            <Input
+              type="number"
+              step="0.0001"
+              placeholder={(order.amount / 100000000).toFixed(4)}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              required
+            />
+            <p className="text-xs text-muted-foreground">
+              Max: {(order.amount / 100000000).toFixed(4)} ZEC
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Your Price (SOL per ZEC)
+            </label>
+            <div className="relative">
+              <Coins className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <Input
+                type="number"
+                step="0.0001"
+                placeholder={(order.min_price / 1000000000).toFixed(4)}
+                className="pl-9"
+                value={price}
+                onChange={(e) => setPrice(e.target.value)}
+                required
+              />
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Range: {(order.min_price / 1000000000).toFixed(4)} - {(order.max_price / 1000000000).toFixed(4)} SOL
+            </p>
+          </div>
+
+          {totalValue > 0 && (
+            <div className="p-3 bg-primary/10 border border-primary/20 rounded-md">
+              <div className="text-sm">
+                <span className="text-muted-foreground">Total Value:</span>
+                <span className="ml-2 text-lg font-bold text-primary">
+                  {totalValue.toFixed(4)} SOL
+                </span>
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="text-sm text-red-400 bg-red-950/20 border border-red-900 rounded-md p-2">
+              {error}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onClose}
+              className="flex-1"
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading} className="flex-1">
+              {loading ? 'Sending...' : 'Send Proposal'}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
+  );
+}
