@@ -72,6 +72,36 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # Solana Local Validator (solana-test-validator)
+  # Provides a local Solana blockchain for HTLC testing
+  # Uses SHA256 hashes compatible with Zcash for true atomic swaps
+  solana-devnet:
+    image: solanalabs/solana:v1.18.26
+    container_name: blacktrace-solana-devnet
+    ports:
+      - "8899:8899"   # JSON-RPC port
+      - "8900:8900"   # WebSocket port
+      - "9900:9900"   # Faucet port
+    networks:
+      - blacktrace-net
+    command: >
+      solana-test-validator
+      --bind-address 0.0.0.0
+      --rpc-port 8899
+      --faucet-port 9900
+      --ledger /var/solana/ledger
+      --limit-ledger-size 50000000
+      --ticks-per-slot 8
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8899/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    volumes:
+      - solana-ledger-data:/var/solana/ledger
+
   # Starknet Sepolia RPC Proxy (for connecting to testnet instead of devnet)
   # Uncomment this service if you want to use Starknet Sepolia testnet
   # starknet-sepolia-proxy:
@@ -92,3 +122,4 @@ networks:
 
 volumes:
   zcash-regtest-data:
+  solana-ledger-data:

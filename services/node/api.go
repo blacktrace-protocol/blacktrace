@@ -312,6 +312,14 @@ func (api *APIServer) handleAuthRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Check for orphaned wallet (wallet exists but no identity) and clean it up
+	walletMgr := api.app.GetWalletManager()
+	authMgr := api.app.GetAuthManager()
+	if walletMgr.WalletExists(req.Username) && !authMgr.UserExists(req.Username) {
+		log.Printf("Auth: Cleaning up orphaned wallet for %s", req.Username)
+		walletMgr.DeleteWallet(req.Username)
+	}
+
 	// Step 1: Create Zcash address BEFORE registering user
 	createAddrResp, err := http.Post("http://settlement-service:8090/api/create-address", "application/json", nil)
 	if err != nil {
@@ -337,14 +345,12 @@ func (api *APIServer) handleAuthRegister(w http.ResponseWriter, r *http.Request)
 	}
 
 	// Step 2: Register user in auth database
-	authMgr := api.app.GetAuthManager()
 	if err := authMgr.Register(req.Username, req.Password); err != nil {
 		api.sendError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
 	// Step 3: Create wallet mapping with keypair info (if this fails, rollback user registration)
-	walletMgr := api.app.GetWalletManager()
 	if err := walletMgr.CreateWallet(req.Username, addrResponse.Address, addrResponse.PrivateKey, addrResponse.PubKey, addrResponse.PubKeyHash); err != nil {
 		// Rollback: delete the user we just created
 		authMgr.DeleteUser(req.Username)

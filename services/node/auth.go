@@ -73,6 +73,12 @@ func (am *AuthManager) Register(username, password string) error {
 	return nil
 }
 
+// UserExists checks if a user identity exists on disk
+func (am *AuthManager) UserExists(username string) bool {
+	exists, _ := IdentityExists(username)
+	return exists
+}
+
 // DeleteUser removes a user identity (used for rollback during registration failures)
 func (am *AuthManager) DeleteUser(username string) error {
 	// Delete from disk

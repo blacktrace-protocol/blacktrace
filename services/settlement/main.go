@@ -104,9 +104,9 @@ func NewSettlementService(natsURL, zcashRPCURL, zcashUser, zcashPassword string)
 }
 
 // createZcashHTLC creates a real HTLC on the Zcash blockchain
-// amountCents is in cents (100 = 1 ZEC)
-func (s *SettlementService) createZcashHTLC(state *SettlementState, amountCents uint64, userZcashAddress string) error {
-	amountZEC := float64(amountCents) / 100.0
+// amountZatoshis is in zatoshis (1 ZEC = 100,000,000 zatoshis = 1e8)
+func (s *SettlementService) createZcashHTLC(state *SettlementState, amountZatoshis uint64, userZcashAddress string) error {
+	amountZEC := float64(amountZatoshis) / 1e8
 	log.Printf("Creating Zcash HTLC for %.2f ZEC from user address %s...", amountZEC, userZcashAddress)
 
 	// Decode secret hash from hex
@@ -340,7 +340,7 @@ func (s *SettlementService) handleSettlementRequest(msg *nats.Msg) {
 	fmt.Printf("     Maker:    %s\n", req.MakerID)
 	fmt.Printf("     Taker:    %s\n\n", req.TakerID)
 	fmt.Printf("  💰 Trade:\n")
-	fmt.Printf("     Amount:   %.2f ZEC\n", float64(req.Amount)/100.0)
+	fmt.Printf("     Amount:   %.8f ZEC\n", float64(req.Amount)/1e8)
 	fmt.Printf("     Price:    $%d\n", req.Price)
 	fmt.Printf("     Total:    $%.2f\n\n", float64(state.AmountUSDC)/100.0)
 	fmt.Printf("  🔐 HTLC Secret:\n")
@@ -386,8 +386,8 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 	switch update.Action {
 	case "alice_lock_zec":
 		// Create HTLC on Zcash blockchain
-		// Amount is in cents, keep as-is and convert to float ZEC in createZcashHTLC
-		amountZEC := update.Amount // Amount in cents (100 = 1 ZEC)
+		// Amount is in zatoshis (1 ZEC = 100,000,000 zatoshis = 1e8)
+		amountZatoshis := update.Amount // Amount in zatoshis
 
 		// Use user's personal Zcash address (required)
 		zcashAddress := update.ZcashAddress
@@ -424,7 +424,7 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 
 		log.Printf("Received pubkey hashes - Alice: %s, Bob: %s", update.AlicePubKeyHash, update.BobPubKeyHash)
 
-		err = s.createZcashHTLC(state, amountZEC, zcashAddress)
+		err = s.createZcashHTLC(state, amountZatoshis, zcashAddress)
 		if err != nil {
 			log.Printf("Error creating Zcash HTLC: %v", err)
 			s.mu.Unlock()
@@ -440,7 +440,7 @@ func (s *SettlementService) handleStatusUpdate(msg *nats.Msg) {
 		fmt.Println("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 		fmt.Printf("\n  Action:      %s\n", update.Action)
 		fmt.Printf("  Status:      %s\n\n", state.Status)
-		fmt.Printf("  🔒 Alice locked %.2f ZEC to HTLC\n", float64(update.Amount)/100.0)
+		fmt.Printf("  🔒 Alice locked %.8f ZEC to HTLC\n", float64(update.Amount)/1e8)
 		fmt.Printf("  📍 HTLC Address: %s\n", state.HTLCP2SHAddress)
 		fmt.Printf("  📜 Lock TX:      %s\n\n", state.HTLCLockTxID)
 		fmt.Println("  ✅ ZEC locked on Zcash blockchain")
@@ -691,13 +691,17 @@ func (s *SettlementService) handleFundAddress(w http.ResponseWriter, r *http.Req
 	}
 
 	log.Printf("✓ Sent %.8f ZEC to %s (txid: %s)", req.Amount, req.Address, txid[:16]+"...")
-	log.Printf("⏳ Transaction will be confirmed by background miner within 60 seconds")
 
-	// Get updated balance (will show unconfirmed balance initially)
+	// Mine a block immediately to confirm the transaction
+	blocks, err := s.zcashClient.Generate(1)
+	if err != nil {
+		log.Printf("Warning: Failed to mine block for confirmation: %v", err)
+	} else {
+		log.Printf("⛏️  Mined 1 block to confirm funding transaction")
+	}
+
+	// Get updated balance (should now show confirmed balance)
 	balance, _ := s.zcashClient.GetAddressBalance(req.Address)
-
-	// Return 0 blocks since we're not mining immediately
-	var blocks []string
 
 	response := map[string]interface{}{
 		"success": true,
@@ -953,11 +957,11 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Build claim parameters
-	// AmountZEC is stored in cents (100 = 1 ZEC), convert to ZEC
+	// AmountZEC is stored in zatoshis (1 ZEC = 1e8 zatoshis), convert to ZEC
 	claimParams := &zcash.HTLCClaimParams{
 		HTLCTxID:      state.HTLCLockTxID,
 		HTLCVout:      0, // HTLC is always at vout 0
-		HTLCAmount:    float64(state.AmountZEC) / 100.0,
+		HTLCAmount:    float64(state.AmountZEC) / 1e8,
 		RedeemScript:  state.HTLCScript,
 		Secret:        secretBytes,
 		RecipientAddr: req.RecipientAddress,
@@ -986,7 +990,7 @@ func (s *SettlementService) handleClaimZEC(w http.ResponseWriter, r *http.Reques
 	response := map[string]interface{}{
 		"success":          true,
 		"txid":             txid,
-		"amount":           float64(state.AmountZEC) / 100.0, // Convert from cents to ZEC
+		"amount":           float64(state.AmountZEC) / 1e8, // Convert from zatoshis to ZEC
 		"recipient":        req.RecipientAddress,
 		"status":           "completed",
 	}

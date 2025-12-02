@@ -1,0 +1,257 @@
+[
+  {
+    "type": "impl",
+    "name": "HTLCImpl",
+    "interface_name": "blacktrace_htlc::htlc::IHTLC"
+  },
+  {
+    "type": "struct",
+    "name": "core::integer::u256",
+    "members": [
+      {
+        "name": "low",
+        "type": "core::integer::u128"
+      },
+      {
+        "name": "high",
+        "type": "core::integer::u128"
+      }
+    ]
+  },
+  {
+    "type": "enum",
+    "name": "core::bool",
+    "variants": [
+      {
+        "name": "False",
+        "type": "()"
+      },
+      {
+        "name": "True",
+        "type": "()"
+      }
+    ]
+  },
+  {
+    "type": "struct",
+    "name": "blacktrace_htlc::htlc::HTLCDetails",
+    "members": [
+      {
+        "name": "hash_lock",
+        "type": "core::felt252"
+      },
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256"
+      },
+      {
+        "name": "timeout",
+        "type": "core::integer::u64"
+      },
+      {
+        "name": "claimed",
+        "type": "core::bool"
+      },
+      {
+        "name": "refunded",
+        "type": "core::bool"
+      }
+    ]
+  },
+  {
+    "type": "interface",
+    "name": "blacktrace_htlc::htlc::IHTLC",
+    "items": [
+      {
+        "type": "function",
+        "name": "lock",
+        "inputs": [
+          {
+            "name": "hash_lock",
+            "type": "core::felt252"
+          },
+          {
+            "name": "receiver",
+            "type": "core::starknet::contract_address::ContractAddress"
+          },
+          {
+            "name": "timeout",
+            "type": "core::integer::u64"
+          },
+          {
+            "name": "amount",
+            "type": "core::integer::u256"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "claim",
+        "inputs": [
+          {
+            "name": "hash_lock",
+            "type": "core::felt252"
+          },
+          {
+            "name": "secret",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "refund",
+        "inputs": [
+          {
+            "name": "hash_lock",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [],
+        "state_mutability": "external"
+      },
+      {
+        "type": "function",
+        "name": "get_htlc_details",
+        "inputs": [
+          {
+            "name": "hash_lock",
+            "type": "core::felt252"
+          }
+        ],
+        "outputs": [
+          {
+            "type": "blacktrace_htlc::htlc::HTLCDetails"
+          }
+        ],
+        "state_mutability": "view"
+      },
+      {
+        "type": "function",
+        "name": "get_htlc_count",
+        "inputs": [],
+        "outputs": [
+          {
+            "type": "core::integer::u64"
+          }
+        ],
+        "state_mutability": "view"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "blacktrace_htlc::htlc::HTLC::Locked",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "hash_lock",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      },
+      {
+        "name": "timeout",
+        "type": "core::integer::u64",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "blacktrace_htlc::htlc::HTLC::Claimed",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "hash_lock",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "receiver",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "secret",
+        "type": "core::felt252",
+        "kind": "data"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "blacktrace_htlc::htlc::HTLC::Refunded",
+    "kind": "struct",
+    "members": [
+      {
+        "name": "hash_lock",
+        "type": "core::felt252",
+        "kind": "key"
+      },
+      {
+        "name": "sender",
+        "type": "core::starknet::contract_address::ContractAddress",
+        "kind": "key"
+      },
+      {
+        "name": "amount",
+        "type": "core::integer::u256",
+        "kind": "data"
+      }
+    ]
+  },
+  {
+    "type": "event",
+    "name": "blacktrace_htlc::htlc::HTLC::Event",
+    "kind": "enum",
+    "variants": [
+      {
+        "name": "Locked",
+        "type": "blacktrace_htlc::htlc::HTLC::Locked",
+        "kind": "nested"
+      },
+      {
+        "name": "Claimed",
+        "type": "blacktrace_htlc::htlc::HTLC::Claimed",
+        "kind": "nested"
+      },
+      {
+        "name": "Refunded",
+        "type": "blacktrace_htlc::htlc::HTLC::Refunded",
+        "kind": "nested"
+      }
+    ]
+  }
+]
