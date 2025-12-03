@@ -2,11 +2,10 @@
  * Solana Chain Provider for BlackTrace
  *
  * Implements the chain abstraction interface for Solana using native SOL.
- * Uses SHA256 for HTLC hash locks (compatible with Zcash).
+ * Uses HASH160 (RIPEMD160(SHA256)) for HTLC hash locks (compatible with Zcash).
  *
- * Supports two modes:
- * - DEMO_MODE: Direct SOL transfers (simulates HTLC for quick testing)
- * - HTLC_MODE: Uses the deployed HTLC smart contract for real atomic swaps
+ * This implementation uses the real HTLC smart contract for atomic swaps.
+ * Program ID: CUxqXa849pvw3TLEWRrA2RyA3vm5SXXwb181BFnRSvej
  */
 
 import React, { createContext, useContext, useState, useMemo, type ReactNode } from 'react';
@@ -14,17 +13,11 @@ import {
   Connection,
   Keypair,
   PublicKey,
-  Transaction,
-  SystemProgram,
-  sendAndConfirmTransaction,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
 import { type ChainContextType, type HTLCDetails, CHAIN_CONFIGS, SupportedChain, HashUtils } from './types';
 import { HTLCClient } from './htlc_client';
 import { HTLC_PROGRAM_ID } from './htlc_idl';
-
-// Configuration: Set to false to use real HTLC contract
-const DEMO_MODE = false; // Using real HTLC contract with HASH160
 
 // Solana Configuration
 const SOLANA_CONFIG = CHAIN_CONFIGS[SupportedChain.SOLANA];
@@ -61,7 +54,6 @@ interface SolanaContextType extends ChainContextType {
   keypair: Keypair | null;
   htlcClient: HTLCClient | null;
   htlcProgramId: string;
-  demoMode: boolean;
   requestAirdrop?: (amountSOL?: number) => Promise<string>;
 }
 
@@ -183,8 +175,7 @@ const createSolanaProvider = (
      * Lock funds with a pre-computed hash (for cross-chain swaps)
      * This is used when Bob locks SOL using the hash from Alice's Zcash HTLC
      *
-     * DEMO MODE: Direct SOL transfer (simulates HTLC lock)
-     * HTLC MODE: Calls the deployed HTLC program's lock instruction
+     * Calls the deployed HTLC program's lock instruction
      */
     const lockFundsWithHash = async (
       hashLock: string,
@@ -199,44 +190,23 @@ const createSolanaProvider = (
         const amountLamports = BigInt(amount);
         const timeoutSeconds = timeoutMinutes * 60;
 
-        console.log(`[${providerName}] Locking SOL with hash:`, {
+        console.log(`[${providerName}] Locking SOL in HTLC contract:`, {
           hashLock,
           receiver,
           amountLamports: amountLamports.toString(),
           amountSOL: (Number(amountLamports) / LAMPORTS_PER_SOL).toFixed(4),
           timeoutMinutes,
-          mode: DEMO_MODE ? 'DEMO' : 'HTLC',
         });
 
-        let signature: string;
-
-        if (DEMO_MODE) {
-          // DEMO MODE: Direct SOL transfer to receiver
-          console.log(`[${providerName}] DEMO MODE: Transferring SOL directly (simulating HTLC lock)`);
-          const receiverPubkey = new PublicKey(receiver);
-
-          const transaction = new Transaction().add(
-            SystemProgram.transfer({
-              fromPubkey: keypair.publicKey,
-              toPubkey: receiverPubkey,
-              lamports: amountLamports,
-            })
-          );
-
-          signature = await sendAndConfirmTransaction(connection, transaction, [keypair]);
-          console.log(`[${providerName}] SOL transfer complete:`, signature);
-        } else {
-          // HTLC MODE: Lock SOL in HTLC contract
-          console.log(`[${providerName}] HTLC MODE: Locking SOL in HTLC contract`);
-          signature = await htlcClient.lockSOLDirect(
-            keypair,
-            hashLock,
-            receiver,
-            amountLamports,
-            timeoutSeconds
-          );
-          console.log(`[${providerName}] SOL locked in HTLC:`, signature);
-        }
+        // Lock SOL in HTLC contract
+        const signature = await htlcClient.lockSOL(
+          keypair,
+          hashLock,
+          receiver,
+          amountLamports,
+          timeoutSeconds
+        );
+        console.log(`[${providerName}] SOL locked in HTLC:`, signature);
 
         // Refresh balance
         if (address) {
@@ -254,20 +224,17 @@ const createSolanaProvider = (
     /**
      * Claim funds by revealing the secret
      *
-     * DEMO MODE: Funds already transferred during lock step, just verify secret
-     * HTLC MODE: Calls the HTLC program's claim instruction to release funds
+     * Calls the HTLC program's claim instruction to release funds
      */
-    const claimFunds = async (hashLock: string, secret: string, amount?: number): Promise<string> => {
+    const claimFunds = async (hashLock: string, secret: string, _amount?: number): Promise<string> => {
       if (!keypair) throw new Error('Wallet not connected');
 
       try {
-        console.log(`[${providerName}] CLAIM: Verifying secret`);
+        console.log(`[${providerName}] CLAIM: Claiming from HTLC contract`);
         console.log('  Hash lock:', hashLock);
-        console.log('  Secret:', secret);
-        console.log('  Mode:', DEMO_MODE ? 'DEMO' : 'HTLC');
-        if (amount) console.log('  Amount:', amount, 'SOL');
+        console.log('  Secret:', secret.substring(0, 10) + '...');
 
-        // Verify the secret matches the hash
+        // Verify the secret matches the hash locally first
         const computedHash = await HashUtils.computeHashLock(secret);
         const normalizedHashLock = hashLock.startsWith('0x') ? hashLock.slice(2) : hashLock;
         const normalizedComputed = computedHash.startsWith('0x') ? computedHash.slice(2) : computedHash;
@@ -281,28 +248,13 @@ const createSolanaProvider = (
 
         console.log(`[${providerName}] Secret verification PASSED`);
 
-        let signature: string;
-
-        if (DEMO_MODE) {
-          // In demo mode, funds were already transferred, return a mock signature
-          signature = Array.from({ length: 88 }, () =>
-            'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'[
-              Math.floor(Math.random() * 62)
-            ]
-          ).join('');
-          console.log(`[${providerName}] DEMO MODE: Claim simulated`);
-        } else {
-          // HTLC MODE: Call the HTLC program to claim
-          console.log(`[${providerName}] HTLC MODE: Claiming from HTLC contract`);
-          const amountLamports = amount ? BigInt(Math.floor(amount * LAMPORTS_PER_SOL)) : BigInt(0);
-          signature = await htlcClient.claimSOLDirect(
-            keypair,
-            hashLock,
-            secret,
-            amountLamports
-          );
-          console.log(`[${providerName}] HTLC claim complete:`, signature);
-        }
+        // Call the HTLC program to claim
+        const signature = await htlcClient.claimSOL(
+          keypair,
+          hashLock,
+          secret
+        );
+        console.log(`[${providerName}] HTLC claim complete:`, signature);
 
         // Refresh balance
         if (address) {
@@ -310,7 +262,6 @@ const createSolanaProvider = (
           setBalance(newBalance);
         }
 
-        console.log(`[${providerName}] Claim complete:`, signature);
         return signature;
       } catch (error) {
         console.error(`[${providerName}] Failed to claim:`, error);
@@ -367,7 +318,6 @@ const createSolanaProvider = (
           connection,
           htlcClient,
           htlcProgramId: HTLC_PROGRAM_ID,
-          demoMode: DEMO_MODE,
           connectWallet,
           disconnectWallet,
           getHTLCDetails,

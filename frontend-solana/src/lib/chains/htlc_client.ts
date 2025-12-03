@@ -15,7 +15,7 @@ import {
   sendAndConfirmTransaction,
   LAMPORTS_PER_SOL,
 } from '@solana/web3.js';
-import { HTLC_PROGRAM_ID, HTLC_ACCOUNT_SIZE, type HTLCAccountData } from './htlc_idl';
+import { HTLC_PROGRAM_ID, type HTLCAccountData } from './htlc_idl';
 import { HashUtils } from './types';
 
 /**
