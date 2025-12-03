@@ -1,0 +1,19 @@
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+blacktrace_htlc = "CUxqXa849pvw3TLEWRrA2RyA3vm5SXXwb181BFnRSvej"
+
+[programs.devnet]
+blacktrace_htlc = "CUxqXa849pvw3TLEWRrA2RyA3vm5SXXwb181BFnRSvej"
+
+[registry]
+url = "https://api.apr.dev"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

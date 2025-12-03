@@ -1,0 +1,29 @@
+[package]
+name = "blacktrace-htlc"
+version = "0.1.0"
+description = "BlackTrace HTLC contract for Solana - SHA256 compatible with Zcash"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "blacktrace_htlc"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+
+[dependencies]
+anchor-lang = "=0.30.1"
+anchor-spl = "=0.30.1"
+solana-program = "=1.18.26"
+sha2 = "0.10"      # For SHA256 hashing
+ripemd = "0.1"    # For HASH160 = RIPEMD160(SHA256) compatibility with Zcash
+
+[dev-dependencies]
+anchor-client = "=0.30.1"
+
+[profile.release]
+overflow-checks = true
