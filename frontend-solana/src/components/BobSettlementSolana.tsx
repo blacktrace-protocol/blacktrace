@@ -20,7 +20,7 @@ import { Lock, RefreshCw, CheckCircle, AlertCircle, Unlock, Clock, Zap, Coins, A
 import type { Proposal, Order } from '../lib/types';
 import { useTakerSolana } from '../lib/chains/solana';
 import { useStore } from '../lib/store';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { LAMPORTS_PER_SOL, PublicKey } from '@solana/web3.js';
 import { logWorkflowStart, logSettlement, logStateChange, logSuccess, logError } from '../lib/logger';
 
 // Alice's Solana address (receiver for Bob's HTLC lock)
