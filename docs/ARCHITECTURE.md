@@ -9,7 +9,8 @@ Cross-chain atomic swap protocol for trustless OTC trading with HTLC-based settl
 BlackTrace is a decentralized peer-to-peer protocol for secure, private OTC (over-the-counter) trading with atomic settlement across chains:
 
 - **Zcash**: ZEC transfers using transparent HTLC scripts (P2SH)
-- **Starknet**: Stablecoin transfers using Cairo HTLC contracts
+- **Solana**: SOL transfers using Anchor HTLC program (native SOL)
+- **Starknet**: STRK transfers using Cairo HTLC contracts
 
 ---
 
@@ -55,14 +56,15 @@ BlackTrace is a decentralized peer-to-peer protocol for secure, private OTC (ove
 |  - Settlement state machine                                  |
 +---------------------+---------------------------------------+
                       |
-          +-----------+-----------+
-          v                       v
-+------------------+    +------------------+
-|  Zcash Connector |    | Starknet Connector|
-|  - HTLC scripts  |    | - HTLC contracts  |
-|  - P2SH addresses|    | - Cairo calls     |
-|  - Claim/Refund  |    | - Claim/Refund    |
-+------------------+    +------------------+
+          +-----------+-----------+-----------+
+          v           v           v
++---------------+ +---------------+ +---------------+
+| Zcash         | | Solana        | | Starknet      |
+| Connector     | | Connector     | | Connector     |
+| - HTLC scripts| | - HTLC program| | - HTLC Cairo  |
+| - P2SH address| | - PDA accounts| | - Cairo calls |
+| - Claim/Refund| | - Claim/Refund| | - Claim/Refund|
++---------------+ +---------------+ +---------------+
 ```
 
 ---
@@ -291,6 +293,24 @@ OP_EQUALVERIFY OP_CHECKSIG
 - Claim transaction with secret reveal
 - Refund transaction after timelock
 
+#### Solana Connector
+
+**Files**:
+- `connectors/solana/htlc.go` - HTLC program interaction
+- `connectors/solana/htlc-contract/` - Anchor HTLC program (Rust)
+
+**HTLC Program**:
+- Program ID: `CUxqXa849pvw3TLEWRrA2RyA3vm5SXXwb181BFnRSvej`
+- Uses PDA (Program Derived Address) from hash_lock for account storage
+- HASH160 (20-byte) hash locks for Zcash compatibility
+- Native SOL transfers (lamports)
+
+**Features**:
+- Lock native SOL with HASH160 commitment
+- Claim with secret reveal (verifies RIPEMD160(SHA256(secret)))
+- Refund after Unix timestamp timeout
+- PDA-based account management
+
 #### Starknet Connector
 
 **Files**:
@@ -299,7 +319,7 @@ OP_EQUALVERIFY OP_CHECKSIG
 
 **Features**:
 - Cairo HTLC contract deployment
-- Lock with hash commitment
+- Lock STRK with hash commitment
 - Claim with secret reveal
 - Refund after timelock expiry
 
@@ -330,22 +350,22 @@ Maker (Alice)                    Settlement Service                   Taker (Bob
      |                                  |  5. Notify: ZEC locked           |
      |                                  |--------------------------------->|
      |                                  |                                  |
-     |                                  |  6. Lock USDC                    |
-     |                                  |  POST /settlement/lock-strk      |
+     |                                  |  6. Lock SOL/STRK                |
+     |                                  |  POST /settlement/lock-sol       |
      |                                  |<---------------------------------|
      |                                  |                                  |
-     |                           7. Deploy Starknet HTLC                   |
-     |                              Lock USDC with same hash               |
+     |                           7. Create Solana/Starknet HTLC            |
+     |                              Lock SOL/STRK with same hash           |
      |                                  |                                  |
      |  8. Both locked notification     |  8. Both locked notification     |
      |<---------------------------------|--------------------------------->|
      |                                  |                                  |
-     |  9. Claim USDC                   |                                  |
-     |  POST /settlement/claim-strk     |                                  |
+     |  9. Claim SOL/STRK               |                                  |
+     |  POST /settlement/claim-sol      |                                  |
      |--------------------------------->|                                  |
      |                                  |                                  |
-     |                          10. Reveal secret on Starknet              |
-     |                              Alice receives USDC                    |
+     |                          10. Reveal secret on Solana/Starknet       |
+     |                              Alice receives SOL/STRK                |
      |                                  |                                  |
      |                                  | 11. Secret now visible on-chain  |
      |                                  |--------------------------------->|
@@ -383,9 +403,11 @@ Maker (Alice)                    Settlement Service                   Taker (Bob
 
 ### Settlement
 - `POST /settlement/lock-zec` - Lock ZEC in HTLC
-- `POST /settlement/lock-strk` - Lock STRK/USDC in HTLC
+- `POST /settlement/lock-sol` - Lock SOL in HTLC
+- `POST /settlement/lock-strk` - Lock STRK in HTLC
 - `POST /settlement/claim-zec` - Claim ZEC with secret
-- `POST /settlement/claim-strk` - Claim STRK/USDC with secret
+- `POST /settlement/claim-sol` - Claim SOL with secret
+- `POST /settlement/claim-strk` - Claim STRK with secret
 - `GET /settlement/status` - Get settlement status
 - `GET /settlement/queue` - List pending settlements
 
@@ -422,6 +444,10 @@ blacktrace/
 |   |   +-- transaction.go     # Transaction building
 |   |   +-- rpc.go             # Zcash RPC client
 |   |
+|   +-- solana/                 # Solana connector
+|   |   +-- htlc.go            # HTLC program interaction
+|   |   +-- htlc-contract/     # Anchor HTLC program (Rust)
+|   |
 |   +-- starknet/               # Starknet connector
 |       +-- htlc.go            # Cairo HTLC interaction
 |       +-- rpc.go             # Starknet RPC client
@@ -433,6 +459,14 @@ blacktrace/
 +-- scripts/
 |   +-- start.sh               # Start services
 |   +-- stop.sh                # Stop services
+|
++-- frontend/                   # STRK-ZEC demo UI (React + Vite)
+|   +-- src/components/        # React components
+|   +-- src/lib/chains/        # Chain integration (Starknet)
+|
++-- frontend-solana/            # SOL-ZEC demo UI (React + Vite)
+|   +-- src/components/        # React components
+|   +-- src/lib/chains/        # Chain integration (Solana)
 |
 +-- docs/                       # Documentation
     +-- ARCHITECTURE.md        # This file
@@ -516,11 +550,12 @@ blacktrace/
 ### On-Chain
 
 - **Zcash HTLC Lock**: ~75 seconds (1 block confirmation)
+- **Solana HTLC Lock**: ~400ms (slot confirmation)
 - **Starknet HTLC Lock**: ~1-5 seconds (fast finality)
 - **Secret Reveal**: ~75 seconds (Zcash confirmation)
 - **Total Swap Time**: ~3-5 minutes (with confirmations)
 
 ---
 
-**Last Updated**: 2025-11-30
-**Version**: 0.5.0
+**Last Updated**: 2025-12-03
+**Version**: 2.1

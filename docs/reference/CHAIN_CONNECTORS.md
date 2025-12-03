@@ -1,6 +1,6 @@
 # Chain Connector Architecture
 
-BlackTrace is designed to support atomic swaps between any two blockchains. This document explains how to extend BlackTrace to support new chains beyond Zcash and Starknet.
+BlackTrace is designed to support atomic swaps between any two blockchains. This document explains the current chain connectors (Zcash, Solana, Starknet) and how to extend BlackTrace to support additional chains.
 
 ## Overview
 
@@ -99,245 +99,208 @@ type HTLCStatus struct {
 
 ### 1. Zcash Connector
 
-**Location:** `settlement-service/zcash/client.go`
+**Location:** `connectors/zcash/`
 
 **Features:**
-- Transparent address support
-- RPC-based HTLC (using raw transactions)
-- Regtest/testnet support
+- Transparent address support (t-addresses)
+- RPC-based HTLC using raw transactions
+- HASH160 (RIPEMD160(SHA256(secret))) for hash locks
+- Regtest/testnet/mainnet support
 
 **HTLC Implementation:**
-- Creates 2-of-2 multisig with timelocks
 - Uses OP_IF/OP_ELSE scripts for claim vs refund paths
+- P2SH address generation from HTLC script
 - Secret revealed in scriptSig when claiming
 
-### 2. Starknet Connector
+### 2. Solana Connector
 
-**Location:** `settlement-service/starknet/connector.go`
+**Location:** `connectors/solana/`
+
+**Features:**
+- Anchor HTLC program (Rust)
+- Native SOL support (lamports)
+- HASH160 (20-byte) hash locks for Zcash compatibility
+- Devnet/testnet/mainnet support
+
+**HTLC Implementation:**
+- Program ID: `CUxqXa849pvw3TLEWRrA2RyA3vm5SXXwb181BFnRSvej`
+- PDA (Program Derived Address) accounts from hash_lock
+- Lock/Claim/Refund instructions
+- Frontend integration via `@solana/web3.js`
+
+### 3. Starknet Connector
+
+**Location:** `connectors/starknet/`
 
 **Features:**
 - Cairo contract-based HTLC
-- ERC-20 token support (STRK, USDC, etc.)
+- STRK token support
 - Devnet/testnet support
 
 **HTLC Implementation:**
 - Smart contract with lock/claim/refund methods
 - Secret hash stored in contract state
-- ERC-20 approve + transfer pattern
+- Native STRK transfers
 
 ## Adding a New Chain
 
-### Example: Adding Solana Support
+### Example: Adding Ethereum Support
+
+This example shows how to add a new chain connector. The pattern follows what was implemented for Solana.
 
 #### Step 1: Create Connector Implementation
 
-Create `settlement-service/solana/connector.go`:
+Create `connectors/ethereum/connector.go`:
 
 ```go
-package solana
+package ethereum
 
 import (
     "context"
-    "github.com/gagliardetto/solana-go"
-    "github.com/gagliardetto/solana-go/rpc"
+    "math/big"
+    "github.com/ethereum/go-ethereum/ethclient"
+    "github.com/ethereum/go-ethereum/common"
 )
 
-type SolanaConnector struct {
-    client     *rpc.Client
-    keypair    solana.PrivateKey
-    htlcProgram solana.PublicKey  // Your HTLC program address
+type EthereumConnector struct {
+    client       *ethclient.Client
+    htlcContract common.Address
 }
 
-func NewSolanaConnector(rpcURL string, keypair solana.PrivateKey, htlcProgram solana.PublicKey) *SolanaConnector {
-    return &SolanaConnector{
-        client:      rpc.New(rpcURL),
-        keypair:     keypair,
-        htlcProgram: htlcProgram,
+func NewEthereumConnector(rpcURL string, htlcContract common.Address) (*EthereumConnector, error) {
+    client, err := ethclient.Dial(rpcURL)
+    if err != nil {
+        return nil, err
     }
+    return &EthereumConnector{
+        client:       client,
+        htlcContract: htlcContract,
+    }, nil
 }
 
-func (s *SolanaConnector) CreateAddress() (string, error) {
-    // Generate new Solana keypair
-    kp := solana.NewWallet()
-    return kp.PublicKey().String(), nil
-}
-
-func (s *SolanaConnector) GetBalance(address string) (float64, error) {
-    pubkey := solana.MustPublicKeyFromBase58(address)
-    balance, err := s.client.GetBalance(
-        context.Background(),
-        pubkey,
-        rpc.CommitmentFinalized,
-    )
+func (e *EthereumConnector) GetBalance(address string) (float64, error) {
+    addr := common.HexToAddress(address)
+    balance, err := e.client.BalanceAt(context.Background(), addr, nil)
     if err != nil {
         return 0, err
     }
-    return float64(balance.Value) / 1e9, nil  // Convert lamports to SOL
-}
-
-func (s *SolanaConnector) LockInHTLC(params HTLCLockParams) (string, error) {
-    // 1. Create HTLC account
-    // 2. Call HTLC program's "lock" instruction
-    // 3. Transfer SOL/tokens to HTLC account
-    // 4. Return transaction signature
-
-    // Pseudocode:
-    tx := solana.NewTransaction()
-    tx.AddInstruction(
-        CreateHTLCInstruction(
-            s.htlcProgram,
-            params.Amount,
-            params.SecretHash,
-            params.Recipient,
-            params.Timelock,
-        ),
+    // Convert wei to ETH
+    ethBalance := new(big.Float).Quo(
+        new(big.Float).SetInt(balance),
+        big.NewFloat(1e18),
     )
-
-    sig, err := s.client.SendTransaction(context.Background(), tx)
-    return sig.String(), err
+    result, _ := ethBalance.Float64()
+    return result, nil
 }
 
-func (s *SolanaConnector) ClaimFromHTLC(params HTLCClaimParams) (string, error) {
-    // Call HTLC program's "claim" instruction with secret
-    // Transfer funds from HTLC to recipient
-    // Return transaction signature
+func (e *EthereumConnector) LockInHTLC(params HTLCLockParams) (string, error) {
+    // 1. Prepare transaction to call HTLC contract's lock() method
+    // 2. Sign and send transaction
+    // 3. Return transaction hash
 }
 
-func (s *SolanaConnector) RefundFromHTLC(params HTLCRefundParams) (string, error) {
-    // Check timelock expired
-    // Call HTLC program's "refund" instruction
-    // Transfer funds back to refundee
+func (e *EthereumConnector) ClaimFromHTLC(params HTLCClaimParams) (string, error) {
+    // Call HTLC contract's claim() method with secret
 }
 
-func (s *SolanaConnector) GetHTLCStatus(lockTxid string) (HTLCStatus, error) {
-    // Query HTLC account state
-    // Return status
+func (e *EthereumConnector) RefundFromHTLC(params HTLCRefundParams) (string, error) {
+    // Call HTLC contract's refund() method after timelock
 }
 
-func (s *SolanaConnector) WaitForConfirmation(txid string, confirmations int) error {
-    // Poll transaction status until confirmed
-}
-
-func (s *SolanaConnector) GetChainID() string { return "solana-mainnet" }
-func (s *SolanaConnector) GetChainName() string { return "Solana" }
-func (s *SolanaConnector) GetNativeAsset() string { return "SOL" }
+func (e *EthereumConnector) GetChainID() string { return "ethereum-mainnet" }
+func (e *EthereumConnector) GetChainName() string { return "Ethereum" }
+func (e *EthereumConnector) GetNativeAsset() string { return "ETH" }
 ```
 
-#### Step 2: Create HTLC Program (Solana-specific)
+#### Step 2: Create HTLC Smart Contract (Solidity)
 
-Create `settlement-service/solana/htlc-program/src/lib.rs`:
+Create `connectors/ethereum/htlc-contract/HTLC.sol`:
 
-```rust
-use anchor_lang::prelude::*;
-use anchor_lang::solana_program::hash::hash;
+```solidity
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.19;
 
-declare_id!("Your_Program_ID_Here");
-
-#[program]
-pub mod htlc {
-    use super::*;
-
-    pub fn lock(
-        ctx: Context<Lock>,
-        amount: u64,
-        secret_hash: [u8; 32],
-        timelock: i64,
-    ) -> Result<()> {
-        let htlc = &mut ctx.accounts.htlc;
-        htlc.amount = amount;
-        htlc.secret_hash = secret_hash;
-        htlc.recipient = ctx.accounts.recipient.key();
-        htlc.refundee = ctx.accounts.refundee.key();
-        htlc.timelock = timelock;
-        htlc.locked = true;
-
-        // Transfer SOL to HTLC PDA
-        let ix = anchor_lang::solana_program::system_instruction::transfer(
-            &ctx.accounts.refundee.key(),
-            &htlc.key(),
-            amount,
-        );
-        anchor_lang::solana_program::program::invoke(
-            &ix,
-            &[ctx.accounts.refundee.to_account_info(), htlc.to_account_info()],
-        )?;
-
-        Ok(())
+contract HTLC {
+    struct Lock {
+        address sender;
+        address recipient;
+        uint256 amount;
+        bytes20 hashLock;  // HASH160 for Zcash compatibility
+        uint256 timelock;
+        bool claimed;
+        bool refunded;
     }
 
-    pub fn claim(ctx: Context<Claim>, secret: [u8; 32]) -> Result<()> {
-        let htlc = &ctx.accounts.htlc;
+    mapping(bytes20 => Lock) public locks;
 
-        // Verify secret hash
-        let hash = hash(&secret).to_bytes();
-        require!(hash == htlc.secret_hash, HTLCError::InvalidSecret);
-        require!(htlc.locked, HTLCError::NotLocked);
+    event Locked(bytes20 indexed hashLock, address sender, address recipient, uint256 amount, uint256 timelock);
+    event Claimed(bytes20 indexed hashLock, bytes secret);
+    event Refunded(bytes20 indexed hashLock);
 
-        // Transfer SOL to recipient
-        **htlc.to_account_info().try_borrow_mut_lamports()? -= htlc.amount;
-        **ctx.accounts.recipient.try_borrow_mut_lamports()? += htlc.amount;
+    function lock(
+        bytes20 hashLock,
+        address recipient,
+        uint256 timelock
+    ) external payable {
+        require(msg.value > 0, "Amount must be > 0");
+        require(timelock > block.timestamp, "Timelock must be in future");
+        require(locks[hashLock].amount == 0, "Lock already exists");
 
-        let htlc = &mut ctx.accounts.htlc;
-        htlc.locked = false;
+        locks[hashLock] = Lock({
+            sender: msg.sender,
+            recipient: recipient,
+            amount: msg.value,
+            hashLock: hashLock,
+            timelock: timelock,
+            claimed: false,
+            refunded: false
+        });
+
+        emit Locked(hashLock, msg.sender, recipient, msg.value, timelock);
+    }
+
+    function claim(bytes20 hashLock, bytes calldata secret) external {
+        Lock storage htlc = locks[hashLock];
+        require(htlc.amount > 0, "Lock does not exist");
+        require(!htlc.claimed, "Already claimed");
+        require(!htlc.refunded, "Already refunded");
+
+        // Verify HASH160(secret) matches hashLock
+        bytes20 computed = ripemd160(abi.encodePacked(sha256(secret)));
+        require(computed == hashLock, "Invalid secret");
+
         htlc.claimed = true;
-        htlc.secret = Some(secret);
+        payable(htlc.recipient).transfer(htlc.amount);
 
-        Ok(())
+        emit Claimed(hashLock, secret);
     }
 
-    pub fn refund(ctx: Context<Refund>) -> Result<()> {
-        let htlc = &ctx.accounts.htlc;
-        let clock = Clock::get()?;
+    function refund(bytes20 hashLock) external {
+        Lock storage htlc = locks[hashLock];
+        require(htlc.amount > 0, "Lock does not exist");
+        require(!htlc.claimed, "Already claimed");
+        require(!htlc.refunded, "Already refunded");
+        require(block.timestamp >= htlc.timelock, "Timelock not expired");
+        require(msg.sender == htlc.sender, "Only sender can refund");
 
-        // Check timelock expired
-        require!(clock.unix_timestamp >= htlc.timelock, HTLCError::TimelockNotExpired);
-        require!(htlc.locked, HTLCError::NotLocked);
-
-        // Transfer SOL back to refundee
-        **htlc.to_account_info().try_borrow_mut_lamports()? -= htlc.amount;
-        **ctx.accounts.refundee.try_borrow_mut_lamports()? += htlc.amount;
-
-        let htlc = &mut ctx.accounts.htlc;
-        htlc.locked = false;
         htlc.refunded = true;
+        payable(htlc.sender).transfer(htlc.amount);
 
-        Ok(())
+        emit Refunded(hashLock);
     }
-}
-
-#[account]
-pub struct HTLC {
-    pub amount: u64,
-    pub secret_hash: [u8; 32],
-    pub secret: Option<[u8; 32]>,
-    pub recipient: Pubkey,
-    pub refundee: Pubkey,
-    pub timelock: i64,
-    pub locked: bool,
-    pub claimed: bool,
-    pub refunded: bool,
-}
-
-#[error_code]
-pub enum HTLCError {
-    #[msg("Invalid secret provided")]
-    InvalidSecret,
-    #[msg("HTLC is not locked")]
-    NotLocked,
-    #[msg("Timelock has not expired yet")]
-    TimelockNotExpired,
 }
 ```
 
 #### Step 3: Register Connector in Settlement Service
 
-Update `settlement-service/main.go`:
+Update `services/settlement/main.go`:
 
 ```go
 import (
-    "blacktrace/settlement-service/zcash"
-    "blacktrace/settlement-service/starknet"
-    "blacktrace/settlement-service/solana"  // NEW
+    "blacktrace/connectors/zcash"
+    "blacktrace/connectors/solana"
+    "blacktrace/connectors/starknet"
+    "blacktrace/connectors/ethereum"  // NEW
 )
 
 type SettlementService struct {
@@ -355,15 +318,18 @@ func NewSettlementService(...) (*SettlementService, error) {
     zcashClient := zcash.NewClient(zcashURL, zcashUser, zcashPassword)
     connectors["zcash"] = &ZcashConnector{client: zcashClient}
 
-    // Starknet
-    starknetClient := starknet.NewClient(starknetURL)
-    connectors["starknet"] = starknet.NewConnector(starknetClient)
+    // Solana
+    connectors["solana"] = solana.NewConnector(solanaRPC, htlcProgramID)
 
-    // Solana (NEW)
-    solanaClient := rpc.New(os.Getenv("SOLANA_RPC_URL"))
-    solanaKeypair := loadSolanaKeypair()
-    solanaHTLCProgram := solana.MustPublicKeyFromBase58(os.Getenv("SOLANA_HTLC_PROGRAM"))
-    connectors["solana"] = solana.NewSolanaConnector(solanaClient, solanaKeypair, solanaHTLCProgram)
+    // Starknet
+    connectors["starknet"] = starknet.NewConnector(starknetRPC)
+
+    // Ethereum (NEW)
+    ethConnector, _ := ethereum.NewEthereumConnector(
+        os.Getenv("ETHEREUM_RPC_URL"),
+        common.HexToAddress(os.Getenv("ETHEREUM_HTLC_CONTRACT")),
+    )
+    connectors["ethereum"] = ethConnector
 
     return &SettlementService{
         connectors: connectors,
@@ -377,13 +343,13 @@ func NewSettlementService(...) (*SettlementService, error) {
 The existing APIs already support chain parameter, so no changes needed:
 
 ```bash
-# Create Solana wallet
+# Create Ethereum wallet
 curl -X POST http://localhost:8080/wallet/create \
-  -d '{"session_id": "...", "chain": "solana"}'
+  -d '{"session_id": "...", "chain": "ethereum"}'
 
-# Lock SOL in HTLC
+# Lock ETH in HTLC
 curl -X POST http://localhost:8080/settlement/{proposal_id}/lock \
-  -d '{"session_id": "...", "side": "maker", "chain": "solana"}'
+  -d '{"session_id": "...", "side": "maker", "chain": "ethereum"}'
 ```
 
 ## Chain-Specific Considerations
@@ -396,7 +362,7 @@ curl -X POST http://localhost:8080/settlement/{proposal_id}/lock \
 ### Starknet
 - **Confirmations:** Instant finality on L2
 - **HTLC:** Cairo smart contract
-- **Token support:** ERC-20 (STRK, USDC, etc.)
+- **Token support:** STRK native token
 - **Secret size:** Felt252 (32 bytes)
 
 ### Solana
@@ -426,14 +392,21 @@ Add chain configuration to `docker-compose.yml` or environment:
 
 ```yaml
 environment:
-  # Existing
+  # Zcash
   - ZCASH_RPC_URL=http://zcash-regtest:18232
+  - ZCASH_RPC_USER=blacktrace
+  - ZCASH_RPC_PASSWORD=regtest123
+
+  # Solana
+  - SOLANA_RPC_URL=http://solana-devnet:8899
+  - SOLANA_HTLC_PROGRAM=CUxqXa849pvw3TLEWRrA2RyA3vm5SXXwb181BFnRSvej
+
+  # Starknet
   - STARKNET_RPC_URL=http://starknet-devnet:5050
 
-  # New
-  - SOLANA_RPC_URL=http://solana-test-validator:8899
-  - SOLANA_HTLC_PROGRAM=YourProgramIDHere
-  - SOLANA_KEYPAIR_PATH=/keys/solana-keypair.json
+  # Ethereum (example for new chain)
+  - ETHEREUM_RPC_URL=http://localhost:8545
+  - ETHEREUM_HTLC_CONTRACT=0x...
 ```
 
 ## Security Considerations

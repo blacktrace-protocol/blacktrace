@@ -19,13 +19,13 @@ It's the difference between handing someone your keys and using a lockbox only y
 
 ## How It Works
 
-Alice wants to sell 1 ZEC. Bob wants to buy it with USDC.
+Alice wants to sell 1 ZEC. Bob wants to buy it with SOL (or STRK).
 
 Instead of trusting a bridge—or each other—they use a **hash-locked escrow**:
 
 1. Alice locks her ZEC on Zcash with a secret key
-2. Bob locks his USDC on Starknet with the *same* key
-3. Alice claims the USDC by revealing the secret
+2. Bob locks his SOL on Solana (or STRK on Starknet) with the *same* key
+3. Alice claims the SOL/STRK by revealing the secret
 4. Bob sees the secret and claims the ZEC
 
 **Both get paid, or both get refunded.** No bridge. No custody. No trust.
@@ -58,18 +58,18 @@ Instead of trusting a bridge—or each other—they use a **hash-locked escrow**
          └────────┬───────┘
                   │
                   ▼
-    ┌─────────────────────────┐
-    │  Settlement Service     │
-    │  (Go + Zcash/Starknet)  │
-    │  Port: 8090             │
-    └───────────┬─────────────┘
+    ┌─────────────────────────────────┐
+    │  Settlement Service             │
+    │  (Go + Zcash/Solana/Starknet)   │
+    │  Port: 8090                     │
+    └───────────┬─────────────────────┘
                 │
-    ┌───────────┴───────────┐
-    ▼                       ▼
-┌──────────────┐    ┌───────────────────┐
-│ Zcash        │    │ Starknet          │
-│ (HTLC)       │    │ (HTLC Contract)   │
-└──────────────┘    └───────────────────┘
+    ┌───────────┼───────────┐
+    ▼           ▼           ▼
+┌────────┐ ┌─────────┐ ┌──────────┐
+│ Zcash  │ │ Solana  │ │ Starknet │
+│ (HTLC) │ │ (HTLC)  │ │ (HTLC)   │
+└────────┘ └─────────┘ └──────────┘
 ```
 
 ## Quick Start
@@ -83,9 +83,11 @@ Instead of trusting a bridge—or each other—they use a **hash-locked escrow**
 ```
 
 **Access:**
-- Frontend: http://localhost:5173
+- Frontend (STRK-ZEC): http://localhost:5173
+- Frontend (SOL-ZEC): http://localhost:5174
 - Alice API: http://localhost:8080
 - Bob API: http://localhost:8081
+- Solana Devnet: http://localhost:8899
 
 See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup instructions.
 
@@ -93,9 +95,10 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup instructions.
 
 - **P2P Network**: libp2p with GossipSub for peer discovery
 - **Encryption**: ECIES (P-256) for end-to-end encrypted negotiation
-- **Settlement**: HTLC atomic swaps (Zcash + Starknet)
+- **Settlement**: HTLC atomic swaps (Zcash + Solana + Starknet)
 - **Coordination**: Go nodes + NATS message broker
-- **Hash Algorithm**: RIPEMD160(SHA256(secret)) for hash locks
+- **Hash Algorithm**: RIPEMD160(SHA256(secret)) - HASH160 for cross-chain compatibility
+- **Solana HTLC**: Anchor program with native SOL support
 
 ## Documentation
 
@@ -128,12 +131,15 @@ See [docs/QUICKSTART.md](docs/QUICKSTART.md) for detailed setup instructions.
 - Encrypted proposals and acceptance
 - NATS settlement coordination
 - Zcash HTLC script generation and claiming
+- Solana HTLC contract (Anchor program with HASH160)
+- SOL-ZEC atomic swap (end-to-end)
+- STRK-ZEC atomic swap (end-to-end)
 - Docker Compose orchestration
+- Dual frontend UIs (Solana and Starknet)
 
 ### In Progress
-- Starknet HTLC contract deployment
-- Frontend settlement UI
-- End-to-end atomic swap testing
+- Multi-asset SPL token support on Solana
+- Cross-chain liquidity aggregation
 
 ## Target Users
 

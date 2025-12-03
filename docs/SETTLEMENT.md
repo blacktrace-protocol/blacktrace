@@ -42,8 +42,8 @@ The Settlement Service orchestrates the atomic swap but **never touches private 
 | Action | Who Signs | Private Key Location | How |
 |--------|-----------|---------------------|-----|
 | Create Zcash HTLC | **Alice** | Alice's Zcash wallet | Wallet popup in frontend |
-| Create Starknet HTLC | **Bob** | Bob's Starknet wallet (ArgentX) | Wallet popup in frontend |
-| Claim USDC | **Alice** | Alice's Starknet wallet | Wallet popup in frontend |
+| Create Solana/Starknet HTLC | **Bob** | Bob's Solana/Starknet wallet | Wallet popup in frontend |
+| Claim SOL/STRK | **Alice** | Alice's Solana/Starknet wallet | Wallet popup in frontend |
 | Claim ZEC | **Bob** | Bob's Zcash wallet | Wallet popup in frontend |
 
 **Settlement Service:** Only monitors and coordinates - **NO PRIVATE KEYS EVER**
@@ -333,13 +333,13 @@ HTLCs enable **atomic swaps** - both trades complete or both fail, with zero cou
 ### The Problem HTLCs Solve
 
 **Without HTLCs:**
-- Alice sends ZEC first → Bob might not send USDC (Alice loses money)
-- Bob sends USDC first → Alice might not send ZEC (Bob loses money)
-- Need to trust each other 
+- Alice sends ZEC first → Bob might not send SOL/STRK (Alice loses money)
+- Bob sends SOL/STRK first → Alice might not send ZEC (Bob loses money)
+- Need to trust each other
 
 **With HTLCs:**
 - Both lock funds in smart contracts with the same hash secret
-- Alice reveals secret to claim USDC → Bob sees secret and claims ZEC
+- Alice reveals secret to claim SOL/STRK → Bob sees secret and claims ZEC
 - Or both get refunds after timeout
 - **Zero counterparty risk** 
 
@@ -376,62 +376,62 @@ Zcash L1 (Orchard Pool)
 
 **Alice's ZEC is now locked.** Bob can't steal it (doesn't know secret).
 
-### Phase 3: Bob Locks USDC (Taker)
+### Phase 3: Bob Locks SOL or STRK (Taker)
 
 ```
-zTarknet (Starknet)
+Solana (or Starknet)
 ┌─────────────────────────────────────┐
 │  Bob's HTLC Contract                │
 ├─────────────────────────────────────┤
-│  Amount: $4,650,000 USDC            │
+│  Amount: 10 SOL (or STRK)           │
 │  Hash: h (same as Zcash)            │
 │  Recipient: Alice                   │
 │  Refund: Bob (after 24 hours)       │
 │                                     │
 │  Unlock conditions:                 │
 │  1. Alice provides secret s         │
-│     where SHA256(s) == h            │
+│     where HASH160(s) == h           │
 │  OR                                 │
 │  2. Bob reclaims after timeout      │
 └─────────────────────────────────────┘
 ```
 
-**Bob's USDC is now locked.** Both funds are in HTLCs with the **same hash**.
+**Bob's SOL/STRK is now locked.** Both funds are in HTLCs with the **same hash**.
 
 **Key Detail:** Bob's timeout (24h) < Alice's timeout (48h)
 - Ensures Bob can't get rugged if Alice doesn't reveal
 
-### Phase 4: Alice Claims USDC (Reveals Secret)
+### Phase 4: Alice Claims SOL/STRK (Reveals Secret)
 
 ```
-Alice → zTarknet HTLC: claim(secret = s)
+Alice → Solana/Starknet HTLC: claim(secret = s)
 
-zTarknet HTLC verifies:
-  Yes SHA256(s) == h
+HTLC verifies:
+  Yes HASH160(s) == h
   Yes Recipient == Alice
 
-→ Transfer $4,650,000 USDC to Alice
+→ Transfer SOL/STRK to Alice
 → Secret `s` is now PUBLIC on blockchain
 ```
 
 ### Phase 5: Bob Claims ZEC (Uses Revealed Secret)
 
 ```
-Bob monitors zTarknet → sees Alice's claim → extracts secret `s`
+Bob monitors Solana/Starknet → sees Alice's claim → extracts secret `s`
 
 Bob → Zcash L1 HTLC: claim(secret = s)
 
 Zcash HTLC verifies:
-  Yes SHA256(s) == h
+  Yes HASH160(s) == h
   Yes Recipient == Bob
 
-→ Transfer 10,000 ZEC to Bob
+→ Transfer ZEC to Bob
 ```
 
-### Result: Atomic Swap Complete 
+### Result: Atomic Swap Complete
 
-- Alice gets $4,650,000 USDC
-- Bob gets 10,000 ZEC
+- Alice gets SOL/STRK
+- Bob gets ZEC
 - **Both or neither** - no way to cheat
 
 ---
@@ -448,7 +448,7 @@ Zcash HTLC verifies:
 
 **The Solution: Let Users Start When Ready:**
 -  Alice clicks "Lock ZEC" when she's ready
--  Bob clicks "Lock USDC" when he's ready
+-  Bob clicks "Lock SOL/STRK" when he's ready
 -  Clear, intentional actions
 -  No surprise popups
 -  Better UX
@@ -1396,7 +1396,7 @@ Settlement Service (sees HTLCs, coordinates next step)
 ### Q4: What if one party doesn't claim?
 
 **A:** **Automatic refund** after timeout:
-- Bob gets USDC back (24 hours)
+- Bob gets SOL/STRK back (24 hours)
 - Alice gets ZEC back (48 hours)
 
 The refund is built into the HTLC smart contract - no coordination needed.

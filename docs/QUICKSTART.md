@@ -22,7 +22,8 @@ cd blacktrace
 ```
 
 **Access:**
-- Frontend: http://localhost:5173
+- Frontend (STRK-ZEC): http://localhost:5173
+- Frontend (SOL-ZEC): http://localhost:5174
 - Alice API: http://localhost:8080
 - Bob API: http://localhost:8081
 - NATS Monitor: http://localhost:8222
@@ -50,13 +51,14 @@ cd blacktrace
     │  Port: 8090             │
     └───────────┬─────────────┘
                 │
-    ┌───────────┴───────────┐
+    ┌───────────┼───────────┐
     │   (Full mode only)    │
-    ▼                       ▼
-┌──────────────┐    ┌───────────────────┐
-│ Zcash Regtest│    │ Starknet Devnet   │
-│ Port: 18232  │    │ Port: 5050        │
-└──────────────┘    └───────────────────┘
+    ▼           ▼           ▼
+┌────────┐ ┌─────────┐ ┌──────────┐
+│ Zcash  │ │ Solana  │ │ Starknet │
+│ Regtest│ │ Devnet  │ │ Devnet   │
+│ :18232 │ │ :8899   │ │ :5050    │
+└────────┘ └─────────┘ └──────────┘
 ```
 
 ## Startup Modes
@@ -133,9 +135,16 @@ curl -X POST http://localhost:8080/negotiate/accept \
 
 After acceptance, the settlement service coordinates the HTLC-based atomic swap:
 
-1. Alice locks ZEC on Zcash
-2. Bob locks USDC on Starknet
-3. Alice claims USDC (reveals secret)
+**SOL-ZEC Flow:**
+1. Alice locks ZEC on Zcash (HTLC script)
+2. Bob locks SOL on Solana (HTLC program)
+3. Alice claims SOL (reveals secret)
+4. Bob claims ZEC (uses revealed secret)
+
+**STRK-ZEC Flow:**
+1. Alice locks ZEC on Zcash (HTLC script)
+2. Bob locks STRK on Starknet (HTLC contract)
+3. Alice claims STRK (reveals secret)
 4. Bob claims ZEC (uses revealed secret)
 
 Watch settlement logs:
@@ -149,9 +158,12 @@ docker-compose -f config/docker-compose.yml logs -f settlement-service
 |------|---------|-------------|
 | 4222 | NATS | Client connections |
 | 8222 | NATS | HTTP monitoring |
+| 5173 | Frontend | STRK-ZEC demo UI |
+| 5174 | Frontend | SOL-ZEC demo UI |
 | 8080 | Maker Node | Alice's HTTP API |
 | 8081 | Taker Node | Bob's HTTP API |
 | 8090 | Settlement | HTLC coordinator |
+| 8899 | Solana | Devnet RPC (full mode) |
 | 18232 | Zcash | Regtest RPC (full mode) |
 | 5050 | Starknet | Devnet RPC (full mode) |
 
